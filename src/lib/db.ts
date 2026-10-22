@@ -8,6 +8,7 @@ import { renderMarkdown } from './markdown';
 import seedPost1 from '../seed/post-1.md?raw';
 import seedPost2 from '../seed/post-2.md?raw';
 import seedPost3 from '../seed/post-3.md?raw';
+import seedPost4 from '../seed/post-4.md?raw';
 
 let client: Client | null = null;
 let readyPromise: Promise<void> | null = null;
@@ -219,12 +220,70 @@ export function ensureReady(): Promise<void> {
         await run(statement);
       }
       await seed();
+      await applyContentMigrations();
     })().catch((error) => {
       readyPromise = null;
       throw error;
     });
   }
   return readyPromise;
+}
+
+/* ------------------------------------------------------------------ */
+/* 一次性内容迁移：已有数据库也能收到新增的内置文章，每条只执行一次       */
+/* 删除后不会再次出现（以 meta 记录为准）                                */
+/* ------------------------------------------------------------------ */
+const CONTENT_MIGRATIONS = [
+  {
+    key: 'content:markdown-cheatsheet',
+    slug: 'markdown-cheatsheet',
+    title: 'Markdown 常用语法速查（本站写作手册）',
+    description: '标题、列表、代码块、表格、链接、脚注，以及本站扩展的提示块。写文章时忘了写法，查这一篇就够了。',
+    categorySlug: 'essay',
+    tags: ['Markdown', '写作'],
+    content: seedPost4,
+  },
+];
+
+async function applyContentMigrations() {
+  for (const item of CONTENT_MIGRATIONS) {
+    if (await getMeta(item.key)) continue;
+
+    const exists = await one<{ id: number }>('SELECT id FROM posts WHERE slug = ?', [item.slug]);
+    if (!exists) {
+      const now = nowIso();
+      const rendered = await renderMarkdown(item.content);
+      const category = await one<{ id: number }>('SELECT id FROM categories WHERE slug = ?', [item.categorySlug]);
+      const result = await run(
+        `INSERT INTO posts (slug, title, description, content_md, content_html, toc_json, category_id,
+          status, published_at, pinned, allow_comments, word_count, reading_time, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, 'published', ?, 0, 1, ?, ?, ?, ?)`,
+        [
+          item.slug,
+          item.title,
+          item.description,
+          item.content,
+          rendered.html,
+          rendered.tocJson,
+          category?.id ?? null,
+          now,
+          rendered.wordCount,
+          rendered.readingTime,
+          now,
+          now,
+        ],
+      );
+      const postId = Number(result.lastInsertRowid);
+      for (const name of item.tags) {
+        const tagSlug = slugifyTag(name);
+        await run('INSERT OR IGNORE INTO tags (name, slug, created_at) VALUES (?, ?, ?)', [name, tagSlug, now]);
+        const tag = await one<{ id: number }>('SELECT id FROM tags WHERE slug = ?', [tagSlug]);
+        if (tag) await run('INSERT OR IGNORE INTO post_tags (post_id, tag_id) VALUES (?, ?)', [postId, tag.id]);
+      }
+    }
+
+    await setMeta(item.key, nowIso());
+  }
 }
 
 async function setMeta(key: string, value: string) {

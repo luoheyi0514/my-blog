@@ -17,7 +17,7 @@ const LANGS = [
   'bash', 'shell', 'sh', 'zsh', 'powershell', 'html', 'css', 'scss', 'less',
   'vue', 'svelte', 'astro', 'python', 'go', 'java', 'kotlin', 'rust', 'c',
   'cpp', 'csharp', 'php', 'ruby', 'swift', 'dart', 'sql', 'yaml', 'toml',
-  'ini', 'dockerfile', 'nginx', 'http', 'xml', 'graphql', 'prisma', 'diff',
+  'ini', 'properties', 'dockerfile', 'nginx', 'http', 'xml', 'graphql', 'prisma', 'diff',
   'markdown', 'md', 'makefile', 'lua', 'r', 'perl', 'scala', 'text', 'plaintext',
 ];
 
@@ -236,7 +236,12 @@ export async function renderMarkdown(markdown: string): Promise<RenderResult> {
     .use(remarkParse)
     .use(remarkGfm)
     .use(remarkCallouts)
-    .use(remarkRehype, { allowDangerousHtml: false })
+    .use(remarkRehype, {
+      allowDangerousHtml: false,
+      footnoteLabel: '脚注',
+      footnoteBackLabel: '返回正文',
+      footnoteLabelProperties: { className: ['footnote-label'] },
+    })
     .use(rehypeSlug)
     .use(rehypeAutolinkHeadings, {
       behavior: 'append',

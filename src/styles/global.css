@@ -424,12 +424,50 @@
 .prose td {
   border: 1px solid var(--border);
   padding: 0.55em 0.85em;
+}
+
+.prose th:not([align]),
+.prose td:not([align]),
+.prose [align='left'] {
   text-align: left;
+}
+
+.prose [align='center'] {
+  text-align: center;
+}
+
+.prose [align='right'] {
+  text-align: right;
 }
 
 .prose th {
   color: var(--text);
   font-weight: 600;
+}
+
+/* 脚注 */
+.prose .footnotes {
+  margin-top: 3em;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.prose .footnotes .footnote-label {
+  margin-top: 0;
+  padding-top: 1.2em;
+  border-top: 1px solid var(--border);
+  border-bottom: 0;
+  font-size: 0.9rem;
+}
+
+.prose [data-footnote-ref] {
+  text-decoration: none;
+  font-size: 0.75em;
+  padding-inline: 0.1em;
+}
+
+.prose [data-footnote-backref] {
+  text-decoration: none;
 }
 
 .prose tbody tr:hover {
