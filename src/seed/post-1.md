@@ -1,108 +1,135 @@
-做博客这件事，我折腾过好几轮：最早是 Hexo，后来换成纯静态的 Markdown 方案。每次写文章都要「打开编辑器 → 新建文件 → 填 frontmatter → git push → 等构建」，流程一长，写作的欲望就被消磨掉了。
+刚开始写数仓任务时，我最常犯的错误是「一张大宽表从业务库直接算到报表」。需求一变，整条 SQL 推倒重来；口径对不上，没人说得清数据是从哪一步开始错的。
 
-这次换了个思路：**内容存数据库，写作在浏览器里完成**。
+分层解决的就是这个问题：**把一次复杂的加工拆成几个职责单一的步骤，每一层只做一件事**。
 
-## 为什么不再用纯静态方案
+## 为什么要分层
 
-静态博客的优点很明确：快、免费、可版本管理。但它的写入路径是「文件 + 构建」，这意味着：
-
-| 场景 | 纯静态 | 数据库方案 |
-| --- | --- | --- |
-| 在地铁上想记一条笔记 | 需要电脑 + 编辑器 + 推送 | 手机打开网页就能写 |
-| 修正一个错别字 | 提交一次 commit，等 1 分钟构建 | 修改后立即生效 |
-| 上传一张截图 | 先存到仓库，再引用路径 | 直接粘贴 |
-| 想给文章加阅读量 | 需要接第三方服务 | 一张表就能搞定 |
+| 不分层的问题 | 分层后的效果 |
+| --- | --- |
+| 同一份清洗逻辑在多个报表里重复写 | 清洗只在 DWD 做一次，下游直接复用 |
+| 业务库字段一改，几十个任务一起挂 | 只需要改 ODS → DWD 这一段 |
+| 指标口径不一致，各算各的 | 公共指标沉淀在 DWS，统一口径 |
+| 出了问题不知道哪一步错 | 每层都可以单独核对数据 |
 
 > [!NOTE]
-> 纯静态方案并没有「错」，它只是更适合「一次写完整篇、长期不再修改」的文档站。而学习笔记的特点是碎片、频繁更新。
+> 分层不是为了「看起来规范」，而是为了**复用**和**隔离变化**。如果一个项目只有两三张报表，硬套四层反而是负担。
 
-所以最终选型是：**Astro 负责渲染，SQLite 负责存储**。
+## 各层的职责
 
-## 整体结构
+```
+业务库 / 日志
+     │  同步（全量 / 增量）
+     ▼
+ODS  贴源层     ── 和源系统保持一致，不做业务加工
+     │  清洗、标准化、维度退化
+     ▼
+DWD  明细层     ── 一行一个业务事件，口径统一的明细数据
+     │  按主题、按粒度轻度汇总
+     ▼
+DWS  汇总层     ── 公共指标，例如「用户 × 天」的下单金额
+     │  面向具体需求组装
+     ▼
+ADS  应用层     ── 直接给报表 / 接口使用
 
-页面请求进来之后，先经过中间件校验登录态，再由页面组件直接查询数据库，最后把 HTML 返回给浏览器。
+DIM  维度层     ── 用户、商品、组织等维度表，被 DWD / DWS 关联
+```
 
-~~~ts
-// src/middleware.ts
-export const onRequest = defineMiddleware(async (context, next) => {
-  context.locals.user = await getSessionUser(context.cookies);
+### ODS：只搬运，不加工
 
-  const { pathname } = context.url;
-  if (pathname.startsWith('/admin') && pathname !== '/admin/login' && !context.locals.user) {
-    return context.redirect('/admin/login');
-  }
-  return next();
-});
-~~~
+ODS 的原则是**和源表保持一致**：字段名、类型、取值都尽量不动，最多加一个分区字段和同步时间。
 
-关键点是**渲染发生在服务端**：文章保存时就把 Markdown 转成 HTML 存进 `content_html` 字段，读取时不需要再做一次转换。
+这样做的好处是：下游发现数据有问题时，可以直接拿 ODS 和业务库对比，快速判断是「同步出了问题」还是「加工出了问题」。
 
-~~~ts
-export async function renderMarkdown(markdown: string) {
-  const html = await unified()
-    .use(remarkParse)
-    .use(remarkGfm)
-    .use(remarkRehype)
-    .use(rehypeSlug)
-    .use(rehypeStringify)
-    .process(markdown);
+### DWD：数仓里最重要的一层
 
-  return { html: String(html) };
-}
-~~~
+DWD 要做的事情最多：
 
-## 数据库设计上的几个取舍
-
-### 1. 内容表只存一份原文
-
-`content_md` 是编辑时的唯一数据源，`content_html` 是派生数据。这样做的好处是：修改渲染规则后，可以写一个脚本把所有文章重新渲染一遍，不用担心历史数据格式不一致。
-
-### 2. 软删除
-
-`deleted_at` 不为空即视为已删除，回收站因此变成了一个简单的 `WHERE deleted_at IS NOT NULL` 查询。
+- **清洗**：去重、过滤测试数据、处理空值和异常值
+- **标准化**：统一枚举值（例如把 `1/2/3` 翻译成有含义的状态）、统一时间格式
+- **维度退化**：把常用的维度字段（如城市、渠道）直接冗余到明细表里，减少下游关联
 
 ~~~sql
-SELECT * FROM posts
-WHERE deleted_at IS NOT NULL
-  AND deleted_at < date('now', '-30 days');
-~~~
-
-### 3. 定时发布不依赖定时任务
-
-把 `published_at` 设成未来时间，前台查询时加一个条件即可：
-
-~~~sql
-WHERE status = 'published'
-  AND published_at <= CURRENT_TIMESTAMP
+INSERT OVERWRITE TABLE dwd_trade_order_di PARTITION (dt = '${bizdate}')
+SELECT
+  o.order_id,
+  o.user_id,
+  o.shop_id,
+  CASE o.status
+    WHEN 1 THEN 'created'
+    WHEN 2 THEN 'paid'
+    WHEN 3 THEN 'cancelled'
+    ELSE 'unknown'
+  END                                   AS order_status,
+  CAST(o.amount AS DECIMAL(18, 2)) / 100 AS order_amount,  -- 分 → 元
+  u.city_name,                                              -- 维度退化
+  o.create_time
+FROM ods_trade_order_di o
+LEFT JOIN dim_user_df u
+  ON o.user_id = u.user_id AND u.dt = '${bizdate}'
+WHERE o.dt = '${bizdate}'
+  AND o.is_test = 0;                                        -- 过滤测试单
 ~~~
 
 > [!TIP]
-> 用「查询时过滤」代替「定时改状态」，省掉了一个定时任务，也不会因为任务失败导致文章没发出来。
+> 金额单位、时区、枚举翻译这类「所有下游都要做的处理」，一定要在 DWD 一次做完。否则每张报表各写一遍，迟早会出现口径不一致。
 
-## 写作体验是怎么保证的
+### DWS：沉淀公共指标
 
-后台编辑器做了几件小事，但很影响手感：
+DWS 按**主题 + 粒度**组织，比如「用户粒度的每日交易汇总」：
 
-1. **自动保存**：内容变化 30 秒后写入数据库，同时往 localStorage 写一份兜底
-2. **粘贴即上传**：截图粘贴后自动压缩、上传、插入 Markdown
-3. **实时预览**：和前台使用完全相同的渲染管线，所见即所得
-4. **离开前提醒**：有未保存内容时拦截页面关闭
-
-~~~js
-window.addEventListener('beforeunload', (event) => {
-  if (!isSaved) {
-    event.preventDefault();
-    event.returnValue = '';
-  }
-});
+~~~sql
+INSERT OVERWRITE TABLE dws_trade_user_1d PARTITION (dt = '${bizdate}')
+SELECT
+  user_id,
+  COUNT(DISTINCT order_id)                                       AS order_cnt,
+  SUM(order_amount)                                              AS order_amount,
+  SUM(CASE WHEN order_status = 'paid' THEN order_amount ELSE 0 END) AS paid_amount
+FROM dwd_trade_order_di
+WHERE dt = '${bizdate}'
+GROUP BY user_id;
 ~~~
 
-## 接下来要做的事
+有了这张表，「近 7 天下单用户数」「人均下单金额」这类需求，都不需要再去扫明细。
 
-- [x] 文章、分类、标签、专栏
-- [x] 在线编辑器与图片上传
-- [ ] 全文搜索
-- [ ] 评论系统
-- [ ] 写作热力图
+### ADS：面向需求，可以随时重建
 
-> 「工具应该让记录变得更容易，而不是变成记录本身的负担。」
+ADS 直接对应报表或接口，结构由需求决定。它的特点是**变化快、可以随时删了重建**，所以不要把复用的逻辑放在这一层。
+
+## 表命名规范
+
+团队内统一命名，能省掉大量沟通成本。我习惯的格式是：
+
+```
+{层级}_{主题域}_{业务含义}_{更新方式}
+
+ods_trade_order_di      交易域订单，每日增量
+dwd_trade_order_di      交易域订单明细，每日增量
+dim_user_df             用户维度，每日全量快照
+dws_trade_user_1d       用户粒度的交易汇总，统计周期 1 天
+ads_trade_gmv_daily     每日 GMV 报表
+```
+
+| 后缀 | 含义 |
+| --- | --- |
+| `di` | daily incremental，每天只放当天新增 / 变化的数据 |
+| `df` | daily full，每天一份全量快照 |
+| `1d` / `7d` / `30d` | 汇总表的统计周期 |
+
+## 几个常见的坑
+
+> [!WARNING]
+> **跨层引用**：ADS 直接读 ODS，跳过了 DWD 的清洗逻辑，结果和其他报表对不上。原则上只允许「上层读下层」，并且尽量只读相邻层。
+
+> [!WARNING]
+> **DWS 粒度混乱**：一张汇总表里既有「用户 × 天」的行，又有「用户 × 月」的行。一张表只放一种粒度，否则下游聚合时很容易重复计算。
+
+> [!DANGER]
+> **ODS 里做业务加工**：在 ODS 就把测试数据过滤掉了，后来需要排查测试数据时才发现源数据已经没了。ODS 要保留原貌。
+
+## 小结
+
+- ODS 保留原貌，DWD 统一口径，DWS 沉淀复用，ADS 服务需求
+- 分层的核心目的：**复用**与**隔离变化**
+- 命名规范让表名本身就能说明「是什么、在哪层、怎么更新」
+
+下一篇写维度建模：事实表有哪几种类型，分别适合什么场景。

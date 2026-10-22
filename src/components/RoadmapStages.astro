@@ -1,0 +1,75 @@
+---
+import type { RoadmapArea } from '../lib/types';
+
+interface Props {
+  areas: RoadmapArea[];
+  compact?: boolean;
+}
+
+const { areas, compact = false } = Astro.props;
+
+const stages = areas.map((area, index) => {
+  const match = /^阶段\s*(\d+)\s*[·・.]\s*(.+)$/.exec(area.name);
+  const items = area.items;
+  const avg = items.length ? Math.round(items.reduce((sum, item) => sum + item.progress, 0) / items.length) : 0;
+  const mastered = items.filter((item) => item.status === 'mastered').length;
+  const learning = items.filter((item) => item.status === 'learning').length;
+  const state = items.length && mastered === items.length ? 'done' : learning > 0 || mastered > 0 ? 'active' : 'todo';
+  return {
+    id: area.id,
+    no: match ? match[1] : String(index + 1),
+    title: match ? match[2] : area.name,
+    avg,
+    mastered,
+    learning,
+    total: items.length,
+    state,
+  };
+});
+---
+
+<ol class:list={['grid gap-2', compact ? 'sm:grid-cols-4 lg:grid-cols-7' : 'sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7']}>
+  {
+    stages.map((stage) => (
+      <li>
+        <a
+          href={`/roadmap#area-${stage.id}`}
+          class="card card-hover group relative flex h-full flex-col p-3.5"
+        >
+          <div class="flex items-center justify-between">
+            <span
+              class:list={[
+                'flex h-6 w-6 items-center justify-center rounded-full font-mono text-[11px] font-semibold',
+                stage.state === 'done'
+                  ? 'bg-emerald-500 text-white'
+                  : stage.state === 'active'
+                    ? 'bg-accent text-white'
+                    : 'border border-line text-muted',
+              ]}
+            >
+              {stage.no}
+            </span>
+            <span class="font-mono text-[11px] text-muted">{stage.avg}%</span>
+          </div>
+
+          <p class="mt-2.5 text-[0.82rem] font-medium leading-snug transition group-hover:text-accent">
+            {stage.title}
+          </p>
+
+          <div class="mt-auto pt-3">
+            <div class="h-1 overflow-hidden rounded-full bg-surface2">
+              <div
+                class:list={['h-full rounded-full', stage.state === 'done' ? 'bg-emerald-500' : 'bg-accent']}
+                style={`width:${stage.avg}%`}
+              />
+            </div>
+            <p class="mt-1.5 text-[10px] text-muted">
+              已掌握 {stage.mastered}/{stage.total}
+              {stage.learning > 0 && ` · 学习中 ${stage.learning}`}
+            </p>
+          </div>
+        </a>
+      </li>
+    ))
+  }
+</ol>

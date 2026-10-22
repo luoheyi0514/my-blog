@@ -1,5 +1,6 @@
 ---
 import BaseLayout from '../layouts/BaseLayout.astro';
+import RoadmapStages from '../components/RoadmapStages.astro';
 import { getRoadmap } from '../lib/queries';
 
 const roadmap = await getRoadmap();
@@ -34,14 +35,18 @@ const areas = roadmap
   .filter((area) => area.items.length > 0);
 ---
 
-<BaseLayout title="学习路线" description="技术栈掌握情况与学习进度。">
+<BaseLayout title="大数据开发学习路线" description="从编程基础、Hadoop 生态、Spark、数据仓库到 Flink 实时计算与 OLAP，大数据开发工程师的学习路线与进度。">
   <div class="wrap py-10">
     <header class="mb-8">
-      <h1 class="text-2xl font-bold tracking-tight">学习路线</h1>
+      <h1 class="text-2xl font-bold tracking-tight">大数据开发学习路线</h1>
       <p class="mt-1.5 text-sm text-muted">
         共 {summary.total} 项 · 学习中 {summary.learning} · 已掌握 {summary.mastered}
       </p>
     </header>
+
+    <div class="mb-8">
+      <RoadmapStages areas={roadmap} compact />
+    </div>
 
     <div class="mb-8 flex flex-wrap gap-1.5">
       {
@@ -65,7 +70,7 @@ const areas = roadmap
     <div class="space-y-10">
       {
         areas.map((area) => (
-          <section>
+          <section id={`area-${area.id}`} class="scroll-mt-24">
             <div class="mb-4 flex items-center gap-3">
               <h2 class="text-base font-semibold tracking-tight">{area.name}</h2>
               <div class="h-px flex-1 bg-line" />

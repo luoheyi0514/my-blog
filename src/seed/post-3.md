@@ -1,113 +1,141 @@
-线上一个列表接口突然变慢，`EXPLAIN` 一看，明明建了索引，走的却是全表扫描。这篇文章记录排查过程，以及三类最常见的原因。
+「找出连续登录 3 天及以上的用户」，这道题几乎是大数据岗位 SQL 面试的必考题，实际工作中做留存、活跃分析也经常遇到。
 
-## 一个能复现的表
+它的核心技巧只有一个：**用「日期 − 行号」构造分组标识**。
+
+## 数据准备
 
 ~~~sql
-CREATE TABLE orders (
-  id           bigserial PRIMARY KEY,
-  user_id      bigint NOT NULL,
-  status       varchar(32) NOT NULL,
-  amount_cents integer NOT NULL,
-  created_at   timestamptz NOT NULL DEFAULT now()
+CREATE TABLE user_login (
+  user_id    STRING,
+  login_time TIMESTAMP
 );
-
-CREATE INDEX idx_orders_user_id ON orders (user_id);
 ~~~
 
-数据量 300 万行，`user_id` 上的索引看起来没问题。但下面这条查询走了全表扫描：
+同一天可能登录多次，所以第一步一定是**按天去重**。
+
+## 核心思路
+
+对每个用户，按日期排序后编一个行号。如果日期是连续的，那么「日期 − 行号」的结果会是同一个值：
+
+| user_id | login_date | rn | login_date − rn |
+| --- | --- | --- | --- |
+| u1 | 2026-10-01 | 1 | 2026-09-30 |
+| u1 | 2026-10-02 | 2 | 2026-09-30 |
+| u1 | 2026-10-03 | 3 | 2026-09-30 |
+| u1 | 2026-10-05 | 4 | 2026-10-01 |
+| u1 | 2026-10-06 | 5 | 2026-10-01 |
+
+前 3 行的差值都是 `2026-09-30`，说明它们是一段连续登录；10-05 和 10-06 是另一段。
+
+**按「用户 + 差值」分组，组内的行数就是这一段连续登录的天数。**
+
+## 完整 SQL（Hive / Spark SQL）
 
 ~~~sql
-EXPLAIN ANALYZE
-SELECT * FROM orders WHERE user_id = '123456';
+WITH daily AS (
+  -- 1. 按天去重
+  SELECT DISTINCT user_id, TO_DATE(login_time) AS login_date
+  FROM user_login
+),
+ranked AS (
+  -- 2. 每个用户按日期编号
+  SELECT
+    user_id,
+    login_date,
+    ROW_NUMBER() OVER (PARTITION BY user_id ORDER BY login_date) AS rn
+  FROM daily
+),
+grouped AS (
+  -- 3. 日期减行号，连续的日期得到相同的 grp
+  SELECT user_id, login_date, DATE_SUB(login_date, rn) AS grp
+  FROM ranked
+)
+-- 4. 统计每段连续登录的天数
+SELECT
+  user_id,
+  MIN(login_date) AS start_date,
+  MAX(login_date) AS end_date,
+  COUNT(*)        AS continuous_days
+FROM grouped
+GROUP BY user_id, grp
+HAVING COUNT(*) >= 3;
 ~~~
 
-## 原因一：隐式类型转换
+> [!WARNING]
+> 第 1 步的去重不能省。如果同一天登录两次，行号会多加一，「日期 − 行号」就不再连续，结果会少算。
 
-`user_id` 是 `bigint`，而参数是字符串 `'123456'`。PostgreSQL 会把字符串转成数字吗？
+> [!NOTE]
+> 不同引擎的日期函数写法不一样：Hive / Spark 用 `DATE_SUB(date, n)`；MySQL / StarRocks 用 `DATE_SUB(date, INTERVAL n DAY)`。
 
-并不会。这里的规则是：**列的类型优先级低于传入的类型时，会发生列级别的转换**。`bigint` 和 `varchar` 比较时，`bigint` 会被转成 `varchar`，索引自然失效。
+## 变形一：每个用户的最长连续登录天数
+
+在上面结果的基础上再聚合一次即可：
 
 ~~~sql
--- 等价于
-SELECT * FROM orders WHERE user_id::text = '123456';
+SELECT user_id, MAX(continuous_days) AS max_continuous_days
+FROM (
+  SELECT user_id, grp, COUNT(*) AS continuous_days
+  FROM grouped
+  GROUP BY user_id, grp
+) t
+GROUP BY user_id;
 ~~~
 
-> [!DANGER]
-> 在列上套函数或类型转换，索引一定失效。正确做法是让参数去适配列类型，而不是让列去适配参数。
+## 变形二：允许中间断 1 天
 
-修复方式很简单，传入数字即可：
-
-~~~ts
-// before
-db.query('SELECT * FROM orders WHERE user_id = $1', [userId.toString()]);
-// after
-db.query('SELECT * FROM orders WHERE user_id = $1', [Number(userId)]);
-~~~
-
-## 原因二：函数包裹
-
-另一个常见写法是按日期查询：
+需求改成「中间最多断 1 天也算连续」时，「日期 − 行号」就不适用了。换一个思路：**用 `LAG` 找到每次登录和上一次登录的间隔，间隔超过阈值就开启新的一段**。
 
 ~~~sql
-SELECT * FROM orders
-WHERE date(created_at) = '2026-10-01';
-~~~
-
-`created_at` 上有索引也没用，因为索引存的是 `created_at` 本身，不是 `date(created_at)`。
-
-改成范围查询：
-
-~~~sql
-SELECT * FROM orders
-WHERE created_at >= '2026-10-01'
-  AND created_at <  '2026-10-02';
+WITH daily AS (
+  SELECT DISTINCT user_id, TO_DATE(login_time) AS login_date
+  FROM user_login
+),
+flagged AS (
+  SELECT
+    user_id,
+    login_date,
+    -- 和上一次登录间隔超过 2 天（即断了 2 天及以上），标记为新的一段
+    CASE
+      WHEN DATEDIFF(login_date, LAG(login_date) OVER (PARTITION BY user_id ORDER BY login_date)) > 2
+        THEN 1
+      ELSE 0
+    END AS is_new_segment
+  FROM daily
+),
+segmented AS (
+  -- 累加标记，得到每一段的编号
+  SELECT
+    user_id,
+    login_date,
+    SUM(is_new_segment) OVER (PARTITION BY user_id ORDER BY login_date) AS segment_id
+  FROM flagged
+)
+SELECT
+  user_id,
+  segment_id,
+  MIN(login_date)                                    AS start_date,
+  MAX(login_date)                                    AS end_date,
+  DATEDIFF(MAX(login_date), MIN(login_date)) + 1     AS span_days
+FROM segmented
+GROUP BY user_id, segment_id;
 ~~~
 
 > [!TIP]
-> 如果确实需要频繁按日期过滤，可以建表达式索引：
-> `CREATE INDEX idx_orders_date ON orders (date(created_at));`
+> 「打标记 + 累加求和」是处理「会话切分」类问题的通用套路：页面访问超过 30 分钟算新会话、设备离线超过阈值算新的在线段，都是同样的写法。
 
-## 原因三：统计信息过期
+## 常用窗口函数速查
 
-有时候 SQL 没毛病，索引也没毛病，但优化器就是选错了。可以先看一眼它估算的行数：
+| 函数 | 作用 | 示例结果（值为 10, 20, 20, 30） |
+| --- | --- | --- |
+| `ROW_NUMBER()` | 连续编号，不重复 | 1, 2, 3, 4 |
+| `RANK()` | 并列同号，后面跳号 | 1, 2, 2, 4 |
+| `DENSE_RANK()` | 并列同号，后面不跳号 | 1, 2, 2, 3 |
+| `LAG(col, n)` | 取前第 n 行的值 | 上一次登录日期 |
+| `LEAD(col, n)` | 取后第 n 行的值 | 下一次登录日期 |
+| `SUM() OVER (ORDER BY ...)` | 累计求和 | 累计销售额、分段编号 |
 
-~~~sql
-EXPLAIN SELECT * FROM orders WHERE status = 'paid';
-~~~
+## 小结
 
-如果 `rows` 估算值和实际值差了几个数量级，多半是统计信息过期：
-
-~~~sql
-ANALYZE orders;
-~~~
-
-还有一种情况：`status` 只有三四个取值，优化器认为「回表」的成本高于直接顺序扫描，于是主动放弃索引。这不是 bug，而是成本模型的选择。
-
-## 用覆盖索引减少回表
-
-原查询是 `SELECT *`，需要回表取整行。如果业务只用到少数字段，可以把它们放进索引：
-
-~~~sql
-CREATE INDEX idx_orders_user_created
-  ON orders (user_id, created_at DESC)
-  INCLUDE (status, amount_cents);
-~~~
-
-这样查询可以直接走 index-only scan。
-
-## 排查清单
-
-遇到「有索引但没走」，我会按这个顺序检查：
-
-1. `EXPLAIN (ANALYZE, BUFFERS)` 看实际执行计划，确认是 Seq Scan 还是 Index Scan
-2. 检查 WHERE 条件里列上是否有函数、类型转换、`LIKE '%x'`
-3. 检查统计信息是否过期（`ANALYZE`）
-4. 检查列的选择性：区分度太低的列单独建索引意义不大
-5. 检查是否 `ORDER BY` 与索引顺序不匹配导致额外排序
-
-## 一点体会
-
-索引不是「加上就快」。它是一份额外的、有序的数据结构，只有查询条件和它的顺序、类型完全匹配时才会被使用。
-
-> [!NOTE]
-> 优化器是基于成本的，不是基于「有没有索引」。理解成本模型，比记住各种索引失效的口诀更有用。
+- 连续 N 天问题：**去重 → 编号 → 日期减行号 → 分组计数**
+- 允许断签的问题：**LAG 求间隔 → 打标记 → 累加得到分段编号**
+- 两个套路覆盖了绝大多数「连续」「会话」类 SQL 题

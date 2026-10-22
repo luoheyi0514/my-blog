@@ -1,6 +1,7 @@
 ---
 import BaseLayout from '../layouts/BaseLayout.astro';
 import PostCard from '../components/PostCard.astro';
+import RoadmapStages from '../components/RoadmapStages.astro';
 import { getRoadmap, getSeriesList, getStats, listPosts, listTils } from '../lib/queries';
 import { getSettings } from '../lib/settings';
 import { formatDate } from '../lib/utils';
@@ -59,7 +60,8 @@ const initial = settings.author_name.charAt(0).toUpperCase();
           </div>
 
           <div class="mt-7 flex items-center gap-2.5">
-            <a href="/posts" class="btn btn-primary btn-sm">看文章</a>
+            <a href="/roadmap" class="btn btn-primary btn-sm">学习路线</a>
+            <a href="/posts" class="btn btn-sm">看文章</a>
             <a href="/about" class="btn btn-sm">关于我</a>
             <a href="/rss.xml" class="btn btn-ghost btn-sm text-muted">RSS</a>
           </div>
@@ -93,7 +95,22 @@ const initial = settings.author_name.charAt(0).toUpperCase();
     </div>
   </section>
 
-  <div class="wrap grid gap-12 py-14 lg:grid-cols-[1fr_300px]">
+  {
+    settings.homepage.show_roadmap && roadmap.length > 0 && (
+      <section class="wrap pt-12">
+        <div class="mb-4 flex items-end justify-between">
+          <div>
+            <h2 class="text-lg font-semibold tracking-tight">大数据开发学习路线</h2>
+            <p class="mt-1 text-xs text-muted">从编程基础到实时计算，按阶段记录每一项技术的掌握进度</p>
+          </div>
+          <a href="/roadmap" class="text-xs text-muted transition hover:text-accent">完整路线 →</a>
+        </div>
+        <RoadmapStages areas={roadmap} />
+      </section>
+    )
+  }
+
+  <div class="wrap grid gap-12 py-12 lg:grid-cols-[1fr_300px]">
     <div class="min-w-0">
       {settings.homepage.show_latest_posts && (
       <section>
