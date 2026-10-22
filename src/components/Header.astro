@@ -1,0 +1,197 @@
+---
+interface Props {
+  user: App.Locals['user'];
+  siteName: string;
+}
+
+const { user, siteName } = Astro.props;
+const pathname = Astro.url.pathname;
+
+const nav = [
+  { href: '/posts', label: '文章' },
+  { href: '/series', label: '专栏' },
+  { href: '/til', label: 'TIL' },
+  { href: '/roadmap', label: '路线' },
+  { href: '/projects', label: '项目' },
+  { href: '/about', label: '关于' },
+];
+
+const isActive = (href: string) => pathname === href || pathname.startsWith(`${href}/`);
+const initial = siteName.trim().charAt(0).toUpperCase();
+---
+
+<header class="sticky top-0 z-50 border-b border-line/80 bg-bg/85 backdrop-blur-md">
+  <div class="wrap flex h-16 items-center gap-3">
+    <a href="/" class="flex shrink-0 items-center gap-2.5" aria-label={siteName}>
+      <span
+        class="flex h-8 w-8 items-center justify-center rounded-lg bg-text font-mono text-sm font-bold text-bg"
+      >
+        {initial}
+      </span>
+      <span class="hidden text-[0.95rem] font-semibold tracking-tight sm:block">{siteName}</span>
+    </a>
+
+    <nav class="ml-3 hidden items-center gap-1 md:flex">
+      {
+        nav.map((item) => (
+          <a
+            href={item.href}
+            class:list={[
+              'rounded-md px-2.5 py-1.5 text-sm transition',
+              isActive(item.href)
+                ? 'bg-surface2 font-medium text-text'
+                : 'text-muted hover:bg-surface2 hover:text-text',
+            ]}
+          >
+            {item.label}
+          </a>
+        ))
+      }
+    </nav>
+
+    <div class="ml-auto flex items-center gap-1">
+      <button
+        type="button"
+        data-search-open
+        class="flex h-8 items-center gap-1.5 rounded-md border border-line px-2 text-xs text-muted transition hover:text-text"
+        aria-label="搜索"
+      >
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="11" cy="11" r="7"></circle>
+          <path d="m20 20-3.5-3.5"></path>
+        </svg>
+        <span class="hidden sm:inline">搜索</span>
+        <kbd class="hidden rounded border border-line px-1 font-mono text-[10px] sm:inline">⌘K</kbd>
+      </button>
+
+      <button
+        type="button"
+        data-theme-toggle
+        data-mode="system"
+        class="relative flex h-8 w-8 items-center justify-center rounded-md text-muted transition hover:bg-surface2 hover:text-text"
+        aria-label="切换主题"
+        title="切换主题"
+      >
+        <svg class="icon-sun hidden" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="12" cy="12" r="4"></circle>
+          <path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"></path>
+        </svg>
+        <svg class="icon-moon hidden" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"></path>
+        </svg>
+        <svg class="icon-auto hidden" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="12" cy="12" r="9"></circle>
+          <path d="M12 3v18" />
+          <path d="M12 3a9 9 0 0 1 0 18z" fill="currentColor" stroke="none" opacity="0.35"></path>
+        </svg>
+      </button>
+
+      {
+        user ? (
+          <a href="/admin" class="btn btn-sm ml-1" title="进入后台">
+            后台
+          </a>
+        ) : (
+          <a
+            href="/admin/login"
+            class="hidden h-8 w-8 items-center justify-center rounded-md text-muted transition hover:bg-surface2 hover:text-text sm:flex"
+            aria-label="登录"
+            title="登录后台"
+          >
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"></path>
+              <path d="M10 17l5-5-5-5M15 12H3"></path>
+            </svg>
+          </a>
+        )
+      }
+
+      <button
+        type="button"
+        id="menu-toggle"
+        class="ml-0.5 flex h-8 w-8 items-center justify-center rounded-md text-muted transition hover:bg-surface2 hover:text-text md:hidden"
+        aria-label="菜单"
+        aria-expanded="false"
+      >
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M3 6h18M3 12h18M3 18h18"></path>
+        </svg>
+      </button>
+    </div>
+  </div>
+
+  <div id="mobile-menu" class="hidden border-t border-line bg-bg px-5 pb-4 pt-2 md:hidden">
+    <nav class="grid gap-1">
+      {
+        nav.map((item) => (
+          <a
+            href={item.href}
+            class:list={[
+              'rounded-md px-2 py-2 text-sm',
+              isActive(item.href) ? 'bg-surface2 font-medium text-text' : 'text-muted',
+            ]}
+          >
+            {item.label}
+          </a>
+        ))
+      }
+      <a href="/tags" class="rounded-md px-2 py-2 text-sm text-muted">标签</a>
+      <a href="/archive" class="rounded-md px-2 py-2 text-sm text-muted">归档</a>
+    </nav>
+  </div>
+</header>
+
+<style>
+  [data-mode='light'] .icon-sun,
+  [data-mode='dark'] .icon-moon,
+  [data-mode='system'] .icon-auto {
+    display: block;
+  }
+</style>
+
+<script>
+  const TOGGLE_KEY = 'theme';
+  const order = ['system', 'light', 'dark'] as const;
+
+  function applyTheme(mode: string) {
+    const dark =
+      mode === 'dark' ||
+      (mode === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+    document.documentElement.classList.toggle('dark', dark);
+
+    document.querySelectorAll<HTMLElement>('[data-theme-toggle]').forEach((btn) => {
+      btn.dataset.mode = mode;
+      btn.title = mode === 'system' ? '跟随系统' : mode === 'dark' ? '深色模式' : '浅色模式';
+    });
+  }
+
+  function initTheme() {
+    const mode = localStorage.getItem(TOGGLE_KEY) || 'system';
+    applyTheme(mode);
+
+    document.querySelectorAll<HTMLElement>('[data-theme-toggle]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const current = localStorage.getItem(TOGGLE_KEY) || 'system';
+        const next = order[(order.indexOf(current as (typeof order)[number]) + 1) % order.length];
+        localStorage.setItem(TOGGLE_KEY, next);
+        applyTheme(next);
+      });
+    });
+
+    window
+      .matchMedia('(prefers-color-scheme: dark)')
+      .addEventListener('change', () => {
+        if ((localStorage.getItem(TOGGLE_KEY) || 'system') === 'system') applyTheme('system');
+      });
+  }
+
+  const menuToggle = document.getElementById('menu-toggle');
+  const mobileMenu = document.getElementById('mobile-menu');
+  menuToggle?.addEventListener('click', () => {
+    const isHidden = mobileMenu?.classList.toggle('hidden');
+    menuToggle.setAttribute('aria-expanded', String(!isHidden));
+  });
+
+  initTheme();
+  document.addEventListener('astro:after-swap', initTheme);
+</script>

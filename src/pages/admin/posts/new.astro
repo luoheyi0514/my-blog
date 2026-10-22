@@ -1,0 +1,18 @@
+---
+import AdminLayout from '../../../layouts/AdminLayout.astro';
+import PostEditor from '../../../components/admin/PostEditor.astro';
+import { getCategories, getSeriesList, getTags } from '../../../lib/queries';
+
+export const prerender = false;
+
+const user = Astro.locals.user!;
+const [categories, seriesList, allTags] = await Promise.all([
+  getCategories(false),
+  getSeriesList(false),
+  getTags(false),
+]);
+---
+
+<AdminLayout title="写文章" user={user}>
+  <PostEditor post={null} categories={categories} seriesList={seriesList} allTags={allTags} isNew />
+</AdminLayout>

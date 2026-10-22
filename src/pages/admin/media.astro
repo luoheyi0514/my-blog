@@ -1,0 +1,126 @@
+---
+import AdminLayout from '../../layouts/AdminLayout.astro';
+import { getMediaUsage, listMedia } from '../../lib/queries';
+import { one, run } from '../../lib/db';
+import { formatBytes, nowIso } from '../../lib/utils';
+
+export const prerender = false;
+
+const user = Astro.locals.user!;
+
+if (Astro.request.method === 'POST') {
+  const form = await Astro.request.formData();
+  const action = String(form.get('action') ?? '');
+
+  if (action === 'upload') {
+    const files = form.getAll('files').filter((file): file is File => file instanceof File && file.size > 0);
+    for (const file of files) {
+      if (file.size > 5 * 1024 * 1024 || !file.type.startsWith('image/')) continue;
+      const buffer = new Uint8Array(await file.arrayBuffer());
+      await run(
+        'INSERT INTO media (filename, mime, size, width, height, data, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
+        [file.name || 'image', file.type, file.size, Number(form.get('width') ?? 0) || null, null, buffer, nowIso()],
+      );
+    }
+  } else if (action === 'delete') {
+    const id = Number(form.get('id'));
+    if (id) await run('DELETE FROM media WHERE id = ?', [id]);
+  }
+
+  return Astro.redirect('/admin/media', 303);
+}
+
+const [media, usage] = await Promise.all([listMedia(120), getMediaUsage()]);
+const limit = 1024 * 1024 * 1024;
+---
+
+<AdminLayout title="媒体库" user={user}>
+  <div class="mx-auto max-w-5xl">
+    <div class="card flex flex-wrap items-center gap-3 p-4">
+      <form method="post" enctype="multipart/form-data" class="flex flex-wrap items-center gap-2">
+        <input type="hidden" name="action" value="upload" />
+        <input
+          type="file"
+          name="files"
+          multiple
+          accept="image/*"
+          class="text-xs file:mr-2 file:rounded-md file:border file:border-line file:bg-surface file:px-2 file:py-1 file:text-xs"
+        />
+        <button type="submit" class="btn btn-accent btn-sm">上传</button>
+      </form>
+
+      <div class="ml-auto text-right">
+        <p class="font-mono text-[11px] text-muted">已用 {formatBytes(usage)} / 约 1 GB</p>
+        <div class="mt-1 h-1 w-40 overflow-hidden rounded-full bg-surface2">
+          <div class="h-full bg-accent" style={`width:${Math.min(100, (usage / limit) * 100)}%`} />
+        </div>
+      </div>
+    </div>
+
+    <p class="mt-3 text-[10px] text-muted">
+      提示：编辑器里直接粘贴截图会自动压缩并上传，通常不需要在这里手动上传。
+    </p>
+
+    <div class="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+      {
+        media.map((item) => (
+          <div class="card overflow-hidden">
+            <img
+              src={`/api/media/${item.id}`}
+              alt={item.filename}
+              loading="lazy"
+              class="h-32 w-full bg-surface2 object-cover"
+            />
+            <div class="p-2.5">
+              <p class="truncate text-[10px] text-muted" title={item.filename}>
+                {item.filename}
+              </p>
+              <p class="mt-0.5 font-mono text-[10px] text-muted">
+                {formatBytes(item.size)}
+                {item.width ? ` · ${item.width}px` : ''}
+              </p>
+              <div class="mt-2 flex gap-1">
+                <button
+                  type="button"
+                  class="btn btn-sm flex-1 px-1 text-[10px]"
+                  data-copy={`/api/media/${item.id}`}
+                >
+                  复制链接
+                </button>
+                <form method="post" class="flex-1">
+                  <input type="hidden" name="action" value="delete" />
+                  <input type="hidden" name="id" value={item.id} />
+                  <button
+                    type="submit"
+                    class="btn btn-sm btn-danger w-full px-1 text-[10px]"
+                    onclick="return confirm('删除该图片？文章里的引用会失效')"
+                  >
+                    删除
+                  </button>
+                </form>
+              </div>
+            </div>
+          </div>
+        ))
+      }
+
+      {
+        media.length === 0 && (
+          <p class="col-span-full card p-10 text-center text-xs text-muted">还没有图片</p>
+        )
+      }
+    </div>
+  </div>
+
+  <script>
+    document.querySelectorAll<HTMLButtonElement>('[data-copy]').forEach((button) => {
+      button.addEventListener('click', async () => {
+        const url = `${location.origin}${button.dataset.copy}`;
+        await navigator.clipboard.writeText(url);
+        const original = button.textContent;
+        button.textContent = '已复制';
+        setTimeout(() => (button.textContent = original), 1200);
+      });
+    });
+  </script>
+</AdminLayout>

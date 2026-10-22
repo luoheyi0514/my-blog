@@ -1,0 +1,209 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+import PostCard from '../components/PostCard.astro';
+import { getRoadmap, getSeriesList, getStats, listPosts, listTils } from '../lib/queries';
+import { getSettings } from '../lib/settings';
+import { formatDate } from '../lib/utils';
+
+const settings = await getSettings();
+const [stats, posts, seriesList, tils, roadmap] = await Promise.all([
+  getStats(),
+  listPosts({ limit: 6 }),
+  getSeriesList(),
+  listTils({ limit: 5 }),
+  getRoadmap(),
+]);
+
+const featuredSeries = (seriesList.filter((s) => s.featured === 1).length
+  ? seriesList.filter((s) => s.featured === 1)
+  : seriesList
+).slice(0, 3);
+
+const learning = roadmap
+  .flatMap((area) => area.items.map((item) => ({ ...item, area: area.name })))
+  .filter((item) => item.status === 'learning')
+  .slice(0, 4);
+
+const stats$ = [
+  { label: '文章', value: stats.postCount },
+  { label: 'TIL', value: stats.tilCount },
+  { label: '专栏', value: stats.seriesCount },
+  { label: '字数', value: stats.words >= 1000 ? `${(stats.words / 1000).toFixed(1)}k` : stats.words },
+];
+
+const initial = settings.author_name.charAt(0).toUpperCase();
+---
+
+<BaseLayout>
+  <section class="relative overflow-hidden border-b border-line">
+    <div class="hero-grid pointer-events-none absolute inset-0"></div>
+    <div class="wrap relative py-14 sm:py-20">
+      <div class="flex flex-col gap-8 sm:flex-row sm:items-center sm:justify-between">
+        <div class="max-w-2xl">
+          <p class="mb-3 font-mono text-[11px] uppercase tracking-[0.18em] text-accent">
+            {settings.site_subtitle}
+          </p>
+          <h1 class="text-3xl font-bold leading-tight tracking-tight sm:text-[2.6rem]">
+            {settings.author_name}
+          </h1>
+          <p class="mt-4 text-[0.95rem] leading-relaxed text-muted">{settings.author_bio}</p>
+
+          <div class="mt-6 flex flex-wrap gap-1.5">
+            {
+              settings.tech_stack.map((tech) => (
+                <span class="rounded-md border border-line bg-surface px-2 py-0.5 font-mono text-[11px] text-muted">
+                  {tech}
+                </span>
+              ))
+            }
+          </div>
+
+          <div class="mt-7 flex items-center gap-2.5">
+            <a href="/posts" class="btn btn-primary btn-sm">看文章</a>
+            <a href="/about" class="btn btn-sm">关于我</a>
+            <a href="/rss.xml" class="btn btn-ghost btn-sm text-muted">RSS</a>
+          </div>
+        </div>
+
+        {
+          settings.author_avatar ? (
+            <img
+              src={settings.author_avatar}
+              alt={settings.author_name}
+              class="h-24 w-24 shrink-0 rounded-2xl border border-line object-cover shadow-sm sm:h-32 sm:w-32"
+            />
+          ) : (
+            <div class="hidden h-28 w-28 shrink-0 items-center justify-center rounded-2xl border border-line bg-surface font-mono text-4xl font-bold text-accent shadow-sm sm:flex">
+              {initial}
+            </div>
+          )
+        }
+      </div>
+
+      <div class="mt-12 grid grid-cols-2 gap-px overflow-hidden rounded-xl border border-line bg-line sm:grid-cols-4">
+        {
+          stats$.map((item) => (
+            <div class="bg-surface px-4 py-4">
+              <p class="font-mono text-xl font-semibold tracking-tight">{item.value}</p>
+              <p class="mt-0.5 text-[11px] text-muted">{item.label}</p>
+            </div>
+          ))
+        }
+      </div>
+    </div>
+  </section>
+
+  <div class="wrap grid gap-12 py-14 lg:grid-cols-[1fr_300px]">
+    <div class="min-w-0">
+      {settings.homepage.show_latest_posts && (
+      <section>
+        <div class="mb-5 flex items-end justify-between">
+          <h2 class="text-lg font-semibold tracking-tight">最新文章</h2>
+          <a href="/posts" class="text-xs text-muted transition hover:text-accent">查看全部 →</a>
+        </div>
+
+        {
+          posts.length ? (
+            <div class="grid gap-3">
+              {posts.map((post) => (
+                <PostCard post={post} />
+              ))}
+            </div>
+          ) : (
+            <div class="card p-8 text-center text-sm text-muted">
+              还没有文章，去 <a href="/admin" class="link-accent">后台</a> 写第一篇吧。
+            </div>
+          )
+        }
+      </section>
+      )}
+
+      {
+        settings.homepage.show_series && featuredSeries.length > 0 && (
+          <section class="mt-12">
+            <div class="mb-5 flex items-end justify-between">
+              <h2 class="text-lg font-semibold tracking-tight">精选专栏</h2>
+              <a href="/series" class="text-xs text-muted transition hover:text-accent">全部专栏 →</a>
+            </div>
+            <div class="grid gap-3 sm:grid-cols-2">
+              {featuredSeries.map((series) => (
+                <a href={`/series/${series.slug}`} class="card card-hover group flex flex-col p-5">
+                  <div class="flex items-center gap-2">
+                    <span class="rounded border border-line px-1.5 py-px font-mono text-[10px] text-muted">
+                      {series.status === 'completed' ? '已完结' : '连载中'}
+                    </span>
+                    <span class="text-[11px] text-muted">{series.post_count ?? 0} 篇</span>
+                  </div>
+                  <h3 class="mt-2 font-semibold leading-snug transition group-hover:text-accent">{series.name}</h3>
+                  <p class="mt-1 line-clamp-2 text-xs leading-relaxed text-muted">{series.description}</p>
+                </a>
+              ))}
+            </div>
+          </section>
+        )
+      }
+    </div>
+
+    <aside class="space-y-8">
+      {
+        settings.homepage.show_roadmap && learning.length > 0 && (
+          <section>
+            <div class="mb-3 flex items-end justify-between">
+              <h2 class="section-title">正在学习</h2>
+              <a href="/roadmap" class="text-[11px] text-muted transition hover:text-accent">路线 →</a>
+            </div>
+            <div class="card divide-y divide-line">
+              {learning.map((item) => (
+                <div class="px-4 py-3">
+                  <div class="flex items-center justify-between text-sm">
+                    <span class="flex items-center gap-1.5">
+                      <span>{item.icon}</span>
+                      <span>{item.name}</span>
+                    </span>
+                    <span class="font-mono text-[11px] text-muted">{item.progress}%</span>
+                  </div>
+                  <div class="mt-2 h-1 overflow-hidden rounded-full bg-surface2">
+                    <div class="h-full rounded-full bg-accent" style={`width:${item.progress}%`} />
+                  </div>
+                </div>
+              ))}
+            </div>
+          </section>
+        )
+      }
+
+      {
+        settings.homepage.show_til && tils.length > 0 && (
+          <section>
+            <div class="mb-3 flex items-end justify-between">
+              <h2 class="section-title">最新 TIL</h2>
+              <a href="/til" class="text-[11px] text-muted transition hover:text-accent">全部 →</a>
+            </div>
+            <ul class="space-y-2.5">
+              {tils.map((til) => (
+                <li>
+                  <a href={`/til#til-${til.id}`} class="group block">
+                    <p class="line-clamp-2 text-[0.82rem] leading-snug transition group-hover:text-accent">
+                      {til.title}
+                    </p>
+                    <p class="mt-0.5 font-mono text-[10px] text-muted">{formatDate(til.published_at)}</p>
+                  </a>
+                </li>
+              ))}
+            </ul>
+          </section>
+        )
+      }
+
+      <section>
+        <h2 class="section-title mb-3">快捷入口</h2>
+        <div class="flex flex-wrap gap-1.5">
+          <a href="/categories" class="chip">分类</a>
+          <a href="/tags" class="chip">标签</a>
+          <a href="/archive" class="chip">归档</a>
+          <a href="/rss.xml" class="chip">RSS</a>
+        </div>
+      </section>
+    </aside>
+  </div>
+</BaseLayout>

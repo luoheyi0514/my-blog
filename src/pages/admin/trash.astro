@@ -1,0 +1,85 @@
+---
+import AdminLayout from '../../layouts/AdminLayout.astro';
+import { adminListPosts } from '../../lib/queries';
+import { run } from '../../lib/db';
+import { formatRelative, nowIso } from '../../lib/utils';
+
+export const prerender = false;
+
+const user = Astro.locals.user!;
+
+if (Astro.request.method === 'POST') {
+  const form = await Astro.request.formData();
+  const action = String(form.get('action') ?? '');
+  const id = Number(form.get('id') ?? 0);
+
+  if (action === 'restore' && id) {
+    await run('UPDATE posts SET deleted_at = NULL, updated_at = ? WHERE id = ?', [nowIso(), id]);
+  } else if (action === 'purge' && id) {
+    await run('DELETE FROM post_tags WHERE post_id = ?', [id]);
+    await run('DELETE FROM posts WHERE id = ?', [id]);
+  } else if (action === 'empty') {
+    await run('DELETE FROM posts WHERE deleted_at IS NOT NULL');
+  }
+
+  return Astro.redirect('/admin/trash', 303);
+}
+
+// 自动清理 30 天前的回收站内容
+await run(`DELETE FROM posts WHERE deleted_at IS NOT NULL AND deleted_at < ?`, [
+  new Date(Date.now() - 30 * 86400000).toISOString(),
+]);
+
+const posts = await adminListPosts({ deleted: true, limit: 100 });
+---
+
+<AdminLayout title="回收站" user={user}>
+  <div class="mx-auto max-w-3xl">
+    <div class="mb-4 flex items-center justify-between">
+      <p class="text-xs text-muted">删除的内容保留 30 天，之后自动彻底删除</p>
+      {
+        posts.length > 0 && (
+          <form method="post">
+            <input type="hidden" name="action" value="empty" />
+            <button type="submit" class="btn btn-sm btn-danger" onclick="return confirm('彻底删除回收站中的全部内容？')">
+              清空回收站
+            </button>
+          </form>
+        )
+      }
+    </div>
+
+    <div class="card divide-y divide-line">
+      {
+        posts.map((post) => (
+          <div class="flex items-center gap-3 px-4 py-3">
+            <div class="min-w-0 flex-1">
+              <p class="truncate text-sm">{post.title}</p>
+              <p class="mt-0.5 font-mono text-[10px] text-muted">
+                {formatRelative(post.deleted_at)}删除 · /posts/{post.slug}
+              </p>
+            </div>
+            <form method="post">
+              <input type="hidden" name="action" value="restore" />
+              <input type="hidden" name="id" value={post.id} />
+              <button type="submit" class="btn btn-sm">恢复</button>
+            </form>
+            <form method="post">
+              <input type="hidden" name="action" value="purge" />
+              <input type="hidden" name="id" value={post.id} />
+              <button
+                type="submit"
+                class="btn btn-sm btn-danger"
+                onclick="return confirm('彻底删除后无法恢复，确认？')"
+              >
+                彻底删除
+              </button>
+            </form>
+          </div>
+        ))
+      }
+
+      {posts.length === 0 && <p class="px-4 py-12 text-center text-xs text-muted">回收站是空的</p>}
+    </div>
+  </div>
+</AdminLayout>

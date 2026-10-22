@@ -1,0 +1,134 @@
+---
+import '../styles/global.css';
+import Header from '../components/Header.astro';
+import Footer from '../components/Footer.astro';
+import SearchDialog from '../components/SearchDialog.astro';
+import { getSettings } from '../lib/settings';
+
+interface Props {
+  title?: string;
+  description?: string;
+  image?: string;
+  noIndex?: boolean;
+  wide?: boolean;
+}
+
+const { title, description, image, noIndex = false, wide = false } = Astro.props;
+const settings = await getSettings();
+
+const siteName = settings.site_name;
+const pageTitle = title ? `${title} · ${siteName}` : `${siteName} · ${settings.site_subtitle}`;
+const pageDescription = description || settings.site_description;
+const canonical = new URL(Astro.url.pathname, Astro.site);
+const ogImage = image ? new URL(image, Astro.site).toString() : null;
+const user = Astro.locals.user;
+---
+
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{pageTitle}</title>
+    <meta name="description" content={pageDescription} />
+    <link rel="canonical" href={canonical} />
+    <meta name="generator" content={Astro.generator} />
+    {noIndex && <meta name="robots" content="noindex, nofollow" />}
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="alternate" type="application/rss+xml" title={siteName} href="/rss.xml" />
+
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content={siteName} />
+    <meta property="og:title" content={pageTitle} />
+    <meta property="og:description" content={pageDescription} />
+    <meta property="og:url" content={canonical} />
+    {ogImage && <meta property="og:image" content={ogImage} />}
+    <meta name="twitter:card" content="summary_large_image" />
+
+    <script is:inline>
+      (() => {
+        try {
+          const mode = localStorage.getItem('theme') || 'system';
+          const dark =
+            mode === 'dark' ||
+            (mode === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+          document.documentElement.classList.toggle('dark', dark);
+          document.documentElement.dataset.themeMode = mode;
+        } catch (e) {}
+      })();
+    </script>
+  </head>
+
+  <body class="min-h-screen flex flex-col">
+    <Header user={user} siteName={siteName} />
+
+    <main class={wide ? 'flex-1' : 'flex-1'}>
+      <slot />
+    </main>
+
+    <Footer settings={settings} year={new Date().getFullYear()} />
+    <SearchDialog />
+
+    <button
+      id="back-to-top"
+      class="fixed bottom-6 right-5 z-40 hidden h-9 w-9 items-center justify-center rounded-full border border-line bg-surface text-muted shadow-sm transition hover:text-accent"
+      aria-label="返回顶部"
+    >
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M12 19V5M5 12l7-7 7 7"></path>
+      </svg>
+    </button>
+
+    <script>
+      // 代码块复制
+      document.querySelectorAll('.code-block').forEach((block) => {
+        const head = block.querySelector('.code-block-head');
+        if (!head || head.querySelector('.code-copy')) return;
+        const button = document.createElement('button');
+        button.className = 'code-copy';
+        button.type = 'button';
+        button.textContent = '复制';
+        button.addEventListener('click', async () => {
+          const code = block.querySelector('pre')?.textContent ?? '';
+          try {
+            await navigator.clipboard.writeText(code);
+            button.textContent = '已复制 ✓';
+          } catch {
+            button.textContent = '复制失败';
+          }
+          setTimeout(() => (button.textContent = '复制'), 1800);
+        });
+        head.appendChild(button);
+      });
+
+      // 图片放大
+      document.querySelectorAll('.prose img').forEach((img) => {
+        img.addEventListener('click', () => {
+          const dialog = document.createElement('dialog');
+          dialog.className = 'search-dialog';
+          dialog.style.cssText =
+            'border:0;background:transparent;padding:0;max-width:92vw;max-height:92vh;margin:auto';
+          const el = document.createElement('img');
+          el.src = img.currentSrc || img.src;
+          el.style.cssText = 'max-width:92vw;max-height:92vh;border-radius:8px;cursor:zoom-out';
+          dialog.appendChild(el);
+          dialog.addEventListener('click', () => dialog.remove());
+          document.body.appendChild(dialog);
+          dialog.showModal();
+        });
+      });
+
+      // 返回顶部
+      const backTop = document.getElementById('back-to-top');
+      if (backTop) {
+        const onScroll = () => {
+          backTop.classList.toggle('hidden', window.scrollY < 600);
+          backTop.classList.toggle('flex', window.scrollY >= 600);
+        };
+        window.addEventListener('scroll', onScroll, { passive: true });
+        backTop.addEventListener('click', () => window.scrollTo({ top: 0, behavior: 'smooth' }));
+        onScroll();
+      }
+    </script>
+  </body>
+</html>

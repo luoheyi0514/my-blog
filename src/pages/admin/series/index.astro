@@ -1,0 +1,119 @@
+---
+import AdminLayout from '../../../layouts/AdminLayout.astro';
+import { getSeriesList } from '../../../lib/queries';
+import { one, run, scalar } from '../../../lib/db';
+import { nowIso, slugify } from '../../../lib/utils';
+
+export const prerender = false;
+
+const user = Astro.locals.user!;
+
+if (Astro.request.method === 'POST') {
+  const form = await Astro.request.formData();
+  const action = String(form.get('action') ?? '');
+
+  if (action === 'create') {
+    const name = String(form.get('name') ?? '').trim();
+    if (name) {
+      const desired = String(form.get('slug') ?? '').trim() || slugify(name);
+      let slug = desired;
+      let counter = 1;
+      while (await one<{ id: number }>('SELECT id FROM series WHERE slug = ?', [slug])) {
+        counter += 1;
+        slug = `${desired}-${counter}`;
+      }
+      const maxOrder = (await scalar<number>('SELECT COALESCE(MAX(sort_order),0) FROM series')) ?? 0;
+      await run(
+        `INSERT INTO series (name, slug, description, status, featured, planned_chapters, sort_order, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          name,
+          slug,
+          String(form.get('description') ?? '') || null,
+          String(form.get('status') ?? 'ongoing'),
+          form.get('featured') ? 1 : 0,
+          '[]',
+          maxOrder + 1,
+          nowIso(),
+          nowIso(),
+        ],
+      );
+    }
+  } else if (action === 'delete') {
+    const id = Number(form.get('id'));
+    const count = (await scalar<number>('SELECT COUNT(*) FROM posts WHERE series_id = ? AND deleted_at IS NULL', [id])) ?? 0;
+    if (id && count === 0) await run('DELETE FROM series WHERE id = ?', [id]);
+  }
+
+  return Astro.redirect('/admin/series', 303);
+}
+
+const seriesList = await getSeriesList();
+---
+
+<AdminLayout title="专栏" user={user}>
+  <div class="mx-auto max-w-4xl">
+    <form method="post" class="card p-4">
+      <input type="hidden" name="action" value="create" />
+      <p class="section-title mb-3">新建专栏</p>
+
+      <div class="grid gap-2 sm:grid-cols-2">
+        <input name="name" placeholder="专栏名称" class="field" required />
+        <input name="slug" placeholder="链接别名（可选）" class="field font-mono text-xs" />
+      </div>
+      <input name="description" placeholder="一句话简介" class="field mt-2" />
+      <div class="mt-2 flex flex-wrap items-center gap-4">
+        <select name="status" class="field h-9 w-32 text-xs">
+          <option value="ongoing">连载中</option>
+          <option value="completed">已完结</option>
+        </select>
+        <label class="flex items-center gap-1.5 text-xs text-muted">
+          <input type="checkbox" name="featured" class="accent-current" /> 首页精选
+        </label>
+        <button type="submit" class="btn btn-accent btn-sm ml-auto">创建</button>
+      </div>
+    </form>
+
+    <div class="mt-6 grid gap-3">
+      {
+        seriesList.map((series) => (
+          <div class="card flex items-start gap-3 p-4">
+            <div class="min-w-0 flex-1">
+              <div class="flex items-center gap-2">
+                <a href={`/admin/series/${series.id}`} class="truncate text-sm font-medium hover:text-accent">
+                  {series.name}
+                </a>
+                {series.featured ? (
+                  <span class="rounded bg-accentsoft px-1.5 py-px text-[10px] text-accent">精选</span>
+                ) : null}
+                <span class="rounded bg-surface2 px-1.5 py-px font-mono text-[10px] text-muted">
+                  {series.status === 'completed' ? '已完结' : '连载中'}
+                </span>
+              </div>
+              <p class="mt-1 line-clamp-1 text-[11px] text-muted">{series.description}</p>
+              <p class="mt-1 font-mono text-[10px] text-muted">
+                {series.post_count ?? 0} 篇 · /series/{series.slug}
+              </p>
+            </div>
+
+            <div class="flex shrink-0 items-center gap-1">
+              <a href={`/admin/series/${series.id}`} class="btn btn-sm">编辑</a>
+              <form method="post">
+                <input type="hidden" name="action" value="delete" />
+                <input type="hidden" name="id" value={series.id} />
+                <button
+                  type="submit"
+                  class="btn btn-sm btn-danger"
+                  onclick="return confirm('删除专栏？专栏下有文章时无法删除')"
+                >
+                  删除
+                </button>
+              </form>
+            </div>
+          </div>
+        ))
+      }
+      {seriesList.length === 0 && <p class="card p-10 text-center text-xs text-muted">还没有专栏</p>}
+    </div>
+  </div>
+</AdminLayout>

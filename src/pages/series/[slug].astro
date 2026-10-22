@@ -1,0 +1,87 @@
+---
+import BaseLayout from '../../layouts/BaseLayout.astro';
+import { getSeriesBySlug, getSeriesPosts } from '../../lib/queries';
+import { formatDate, parseJson } from '../../lib/utils';
+
+export const prerender = false;
+
+const { slug } = Astro.params;
+const series = slug ? await getSeriesBySlug(slug) : null;
+if (!series) return Astro.rewrite('/404');
+
+const posts = await getSeriesPosts(series.id, Boolean(Astro.locals.user));
+const planned = parseJson<string[]>(series.planned_chapters, []);
+const doneCount = posts.length;
+---
+
+<BaseLayout title={`专栏：${series.name}`} description={series.description ?? undefined}>
+  <div class="wrap-narrow py-10">
+    <nav class="mb-6 text-[11px] text-muted">
+      <a href="/series" class="hover:text-accent">专栏</a>
+      <span class="mx-1.5">/</span>
+      <span>{series.name}</span>
+    </nav>
+
+    <header class="border-b border-line pb-6">
+      <div class="mb-3 flex items-center gap-2">
+        <span
+          class:list={[
+            'rounded border px-1.5 py-px font-mono text-[10px]',
+            series.status === 'completed'
+              ? 'border-accent/40 bg-accentsoft text-accent'
+              : 'border-line text-muted',
+          ]}
+        >
+          {series.status === 'completed' ? '已完结' : '连载中'}
+        </span>
+        <span class="font-mono text-[11px] text-muted">{doneCount} 篇</span>
+        {planned.length > 0 && <span class="text-[11px] text-muted">· {planned.length} 篇计划中</span>}
+      </div>
+
+      <h1 class="text-2xl font-bold leading-snug tracking-tight">{series.name}</h1>
+      {series.description && <p class="mt-2 text-sm leading-relaxed text-muted">{series.description}</p>}
+    </header>
+
+    <ol class="mt-6 space-y-2">
+      {
+        posts.map((post, index) => (
+          <li>
+            <a href={`/posts/${post.slug}`} class="card card-hover group flex items-start gap-3 p-4">
+              <span class="mt-0.5 w-6 shrink-0 font-mono text-xs text-muted">
+                {String(post.series_order ?? index + 1).padStart(2, '0')}
+              </span>
+              <span class="min-w-0 flex-1">
+                <span class="block text-sm font-medium leading-snug transition group-hover:text-accent">
+                  {post.title}
+                </span>
+                <span class="mt-1 block font-mono text-[10px] text-muted">
+                  {formatDate(post.published_at)} · {post.reading_time} 分钟
+                </span>
+              </span>
+            </a>
+          </li>
+        ))
+      }
+
+      {
+        planned.map((chapter, index) => (
+          <li class="flex items-start gap-3 rounded-xl border border-dashed border-line p-4 opacity-60">
+            <span class="mt-0.5 w-6 shrink-0 font-mono text-xs text-muted">
+              {String(doneCount + index + 1).padStart(2, '0')}
+            </span>
+            <span class="flex-1">
+              <span class="block text-sm leading-snug">{chapter}</span>
+              <span class="mt-1 block text-[10px] text-muted">计划中</span>
+            </span>
+          </li>
+        ))
+      }
+    </ol>
+
+    {
+      posts.length === 0 && planned.length === 0 && (
+        <div class="card mt-6 p-10 text-center text-sm text-muted">这个专栏还没有内容</div>
+      )
+    }
+  </div>
+</BaseLayout>

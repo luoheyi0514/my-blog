@@ -1,0 +1,124 @@
+---
+import AdminLayout from '../../layouts/AdminLayout.astro';
+import { getCategories } from '../../lib/queries';
+import { one, run, scalar } from '../../lib/db';
+import { nowIso, slugify } from '../../lib/utils';
+
+export const prerender = false;
+
+const user = Astro.locals.user!;
+
+if (Astro.request.method === 'POST') {
+  const form = await Astro.request.formData();
+  const action = String(form.get('action') ?? '');
+  const id = Number(form.get('id') ?? 0);
+
+  if (action === 'create') {
+    const name = String(form.get('name') ?? '').trim();
+    if (name) {
+      const desired = String(form.get('slug') ?? '').trim() || slugify(name);
+      let slug = desired;
+      let counter = 1;
+      while (await one<{ id: number }>('SELECT id FROM categories WHERE slug = ?', [slug])) {
+        counter += 1;
+        slug = `${desired}-${counter}`;
+      }
+      const maxOrder = (await scalar<number>('SELECT COALESCE(MAX(sort_order),0) FROM categories')) ?? 0;
+      await run(
+        'INSERT INTO categories (name, slug, icon, description, sort_order, created_at) VALUES (?, ?, ?, ?, ?, ?)',
+        [
+          name,
+          slug,
+          String(form.get('icon') ?? '') || null,
+          String(form.get('description') ?? '') || null,
+          maxOrder + 1,
+          nowIso(),
+        ],
+      );
+    }
+  } else if (action === 'update' && id) {
+    await run('UPDATE categories SET name = ?, slug = ?, icon = ?, description = ?, sort_order = ? WHERE id = ?', [
+      String(form.get('name') ?? '').trim(),
+      String(form.get('slug') ?? '').trim(),
+      String(form.get('icon') ?? '') || null,
+      String(form.get('description') ?? '') || null,
+      Number(form.get('sort_order') ?? 0),
+      id,
+    ]);
+  } else if (action === 'delete' && id) {
+    const count = (await scalar<number>('SELECT COUNT(*) FROM posts WHERE category_id = ? AND deleted_at IS NULL', [id])) ?? 0;
+    if (count === 0) await run('DELETE FROM categories WHERE id = ?', [id]);
+  }
+
+  return Astro.redirect('/admin/categories', 303);
+}
+
+const categories = await getCategories();
+---
+
+<AdminLayout title="分类" user={user}>
+  <div class="mx-auto max-w-3xl">
+    <form method="post" class="card p-4">
+      <input type="hidden" name="action" value="create" />
+      <p class="section-title mb-3">新建分类</p>
+      <div class="grid gap-2 sm:grid-cols-[80px_1fr_1fr]">
+        <input name="icon" placeholder="图标" class="field text-center" />
+        <input name="name" placeholder="分类名称" class="field" required />
+        <input name="slug" placeholder="slug（可选）" class="field font-mono text-xs" />
+      </div>
+      <input name="description" placeholder="一句话描述" class="field mt-2 text-xs" />
+      <button type="submit" class="btn btn-accent btn-sm mt-3">创建</button>
+    </form>
+
+    <div class="mt-6 space-y-2">
+      {
+        categories.map((category) => (
+          <form method="post" class="card flex flex-wrap items-end gap-2 p-3">
+            <input type="hidden" name="id" value={category.id} />
+
+            <div class="w-14">
+              <label class="label">图标</label>
+              <input name="icon" value={category.icon ?? ''} class="field text-center" />
+            </div>
+
+            <div class="min-w-32 flex-1">
+              <label class="label">名称</label>
+              <input name="name" value={category.name} class="field" />
+            </div>
+
+            <div class="min-w-32 flex-1">
+              <label class="label">slug</label>
+              <input name="slug" value={category.slug} class="field font-mono text-xs" />
+            </div>
+
+            <div class="min-w-40 flex-[1.4]">
+              <label class="label">描述</label>
+              <input name="description" value={category.description ?? ''} class="field text-xs" />
+            </div>
+
+            <div class="w-16">
+              <label class="label">排序</label>
+              <input name="sort_order" type="number" value={category.sort_order} class="field text-center text-xs" />
+            </div>
+
+            <div class="flex items-center gap-1 pb-0.5">
+              <span class="mr-1 font-mono text-[10px] text-muted">{category.post_count ?? 0} 篇</span>
+              <button type="submit" name="action" value="update" class="btn btn-sm">保存</button>
+              <button
+                type="submit"
+                name="action"
+                value="delete"
+                class="btn btn-sm btn-danger"
+                onclick="return confirm('删除该分类？分类下没有文章时才允许删除')"
+              >
+                删除
+              </button>
+            </div>
+          </form>
+        ))
+      }
+    </div>
+
+    <p class="mt-4 text-[10px] text-muted">分类下还有文章时无法删除，请先到文章里修改分类。</p>
+  </div>
+</AdminLayout>

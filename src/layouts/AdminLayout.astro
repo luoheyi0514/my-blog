@@ -1,0 +1,178 @@
+---
+import '../styles/global.css';
+
+interface Props {
+  title: string;
+  user: NonNullable<App.Locals['user']>;
+  active?: string;
+}
+
+const { title, user, active = '' } = Astro.props;
+const pathname = Astro.url.pathname;
+
+const groups = [
+  {
+    label: '内容',
+    items: [
+      { href: '/admin', label: '仪表盘', icon: '◧' },
+      { href: '/admin/posts', label: '文章', icon: '▤' },
+      { href: '/admin/til', label: 'TIL', icon: '✎' },
+      { href: '/admin/series', label: '专栏', icon: '§' },
+    ],
+  },
+  {
+    label: '组织',
+    items: [
+      { href: '/admin/categories', label: '分类', icon: '❏' },
+      { href: '/admin/tags', label: '标签', icon: '#' },
+    ],
+  },
+  {
+    label: '展示',
+    items: [
+      { href: '/admin/roadmap', label: '学习路线', icon: '↗' },
+      { href: '/admin/projects', label: '项目', icon: '❖' },
+      { href: '/admin/media', label: '媒体库', icon: '▣' },
+    ],
+  },
+  {
+    label: '系统',
+    items: [
+      { href: '/admin/trash', label: '回收站', icon: '⌫' },
+      { href: '/admin/settings', label: '站点设置', icon: '⚙' },
+    ],
+  },
+];
+
+const isActive = (href: string) =>
+  href === '/admin' ? pathname === '/admin' : pathname === href || pathname.startsWith(`${href}/`);
+---
+
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{title} · 后台</title>
+    <meta name="robots" content="noindex, nofollow" />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <script is:inline>
+      (() => {
+        try {
+          const mode = localStorage.getItem('theme') || 'system';
+          const dark =
+            mode === 'dark' ||
+            (mode === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+          document.documentElement.classList.toggle('dark', dark);
+        } catch (e) {}
+      })();
+    </script>
+  </head>
+
+  <body class="min-h-screen bg-bg text-text">
+    <div class="flex min-h-screen">
+      <aside
+        id="admin-sidebar"
+        class="fixed inset-y-0 left-0 z-40 w-56 -translate-x-full border-r border-line bg-surface transition-transform md:static md:translate-x-0"
+      >
+        <div class="flex h-14 items-center gap-2 border-b border-line px-4">
+          <a href="/admin" class="flex items-center gap-2">
+            <span class="flex h-7 w-7 items-center justify-center rounded-md bg-text font-mono text-xs font-bold text-bg">
+              B
+            </span>
+            <span class="text-sm font-semibold">写作后台</span>
+          </a>
+        </div>
+
+        <nav class="h-[calc(100vh-3.5rem)] space-y-5 overflow-y-auto px-3 py-4">
+          {
+            groups.map((group) => (
+              <div>
+                <p class="mb-1.5 px-2 text-[10px] font-medium uppercase tracking-[0.12em] text-muted">
+                  {group.label}
+                </p>
+                <div class="space-y-0.5">
+                  {group.items.map((item) => (
+                    <a
+                      href={item.href}
+                      class:list={['admin-sidebar-link', isActive(item.href) && 'active']}
+                    >
+                      <span class="w-4 text-center font-mono text-xs opacity-70">{item.icon}</span>
+                      <span>{item.label}</span>
+                    </a>
+                  ))}
+                </div>
+              </div>
+            ))
+          }
+
+          <div class="space-y-0.5 border-t border-line pt-4">
+            <a href="/" target="_blank" class="admin-sidebar-link">
+              <span class="w-4 text-center font-mono text-xs opacity-70">↗</span>
+              <span>查看前台</span>
+            </a>
+            <form method="post" action="/api/auth/logout">
+              <button type="submit" class="admin-sidebar-link w-full text-left">
+                <span class="w-4 text-center font-mono text-xs opacity-70">⏻</span>
+                <span>退出登录</span>
+              </button>
+            </form>
+          </div>
+
+          <p class="px-2 text-[10px] text-muted/70">{user.email}</p>
+        </nav>
+      </aside>
+
+      <div class="min-w-0 flex-1">
+        <header class="sticky top-0 z-30 flex h-14 items-center gap-3 border-b border-line bg-bg/90 px-4 backdrop-blur">
+          <button
+            type="button"
+            id="sidebar-toggle"
+            class="flex h-8 w-8 items-center justify-center rounded-md text-muted hover:bg-surface2 md:hidden"
+            aria-label="菜单"
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M3 6h18M3 12h18M3 18h18"></path>
+            </svg>
+          </button>
+
+          <h1 class="text-sm font-semibold">{title}</h1>
+
+          <div class="ml-auto flex items-center gap-2">
+            <button
+              type="button"
+              data-theme-toggle
+              class="flex h-8 w-8 items-center justify-center rounded-md text-muted hover:bg-surface2"
+              aria-label="切换主题"
+              title="切换主题"
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"></path>
+              </svg>
+            </button>
+            <a href="/posts/new" class="hidden"></a>
+            <a href="/admin/posts/new" class="btn btn-accent btn-sm">写文章</a>
+          </div>
+        </header>
+
+        <main class="p-4 sm:p-6">
+          <slot />
+        </main>
+      </div>
+    </div>
+
+    <script>
+      const sidebar = document.getElementById('admin-sidebar');
+      document.getElementById('sidebar-toggle')?.addEventListener('click', () => {
+        sidebar?.classList.toggle('-translate-x-full');
+      });
+
+      document.querySelectorAll('[data-theme-toggle]').forEach((button) => {
+        button.addEventListener('click', () => {
+          const isDark = document.documentElement.classList.toggle('dark');
+          localStorage.setItem('theme', isDark ? 'dark' : 'light');
+        });
+      });
+    </script>
+  </body>
+</html>

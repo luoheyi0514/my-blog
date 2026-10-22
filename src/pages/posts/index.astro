@@ -1,0 +1,30 @@
+---
+import BaseLayout from '../../layouts/BaseLayout.astro';
+import Pagination from '../../components/Pagination.astro';
+import PostList from '../../components/PostList.astro';
+import { countPosts, getCategories, listPosts } from '../../lib/queries';
+import { getSettings } from '../../lib/settings';
+
+const settings = await getSettings();
+const perPage = settings.posts_per_page || 10;
+
+const [posts, total, categories] = await Promise.all([
+  listPosts({ limit: perPage, offset: 0 }),
+  countPosts(),
+  getCategories(),
+]);
+
+const totalPages = Math.max(1, Math.ceil(total / perPage));
+---
+
+<BaseLayout title="全部文章" description="所有技术笔记、踩坑记录与学习总结。">
+  <div class="wrap py-10">
+    <header class="mb-7">
+      <h1 class="text-2xl font-bold tracking-tight">全部文章</h1>
+      <p class="mt-1.5 text-sm text-muted">共 {total} 篇 · 持续更新中</p>
+    </header>
+
+    <PostList posts={posts} categories={categories} />
+    <Pagination current={1} totalPages={totalPages} basePath="/posts" />
+  </div>
+</BaseLayout>

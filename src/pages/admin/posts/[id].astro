@@ -1,0 +1,31 @@
+---
+import AdminLayout from '../../../layouts/AdminLayout.astro';
+import PostEditor from '../../../components/admin/PostEditor.astro';
+import { getCategories, getPostById, getPostTags, getSeriesList, getTags } from '../../../lib/queries';
+
+export const prerender = false;
+
+const user = Astro.locals.user!;
+const id = Number(Astro.params.id);
+if (!Number.isInteger(id)) return Astro.redirect('/admin/posts');
+
+const post = await getPostById(id);
+if (!post || post.deleted_at) return Astro.redirect('/admin/posts');
+
+const [tags, categories, seriesList, allTags] = await Promise.all([
+  getPostTags(id),
+  getCategories(false),
+  getSeriesList(false),
+  getTags(false),
+]);
+---
+
+<AdminLayout title="编辑文章" user={user}>
+  <PostEditor
+    post={{ ...post, tags }}
+    categories={categories}
+    seriesList={seriesList}
+    allTags={allTags}
+    isNew={false}
+  />
+</AdminLayout>

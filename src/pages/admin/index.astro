@@ -1,0 +1,154 @@
+---
+import AdminLayout from '../../layouts/AdminLayout.astro';
+import { adminListPosts, adminListTils, getSeriesList, getStats } from '../../lib/queries';
+import { formatRelative } from '../../lib/utils';
+
+export const prerender = false;
+
+const user = Astro.locals.user!;
+const [stats, recent, drafts, tils, seriesList] = await Promise.all([
+  getStats(),
+  adminListPosts({ limit: 6 }),
+  adminListPosts({ status: 'draft', limit: 5 }),
+  adminListTils({ limit: 4 }),
+  getSeriesList(),
+]);
+
+const published = recent.filter((post) => post.status === 'published');
+const popular = [...published].sort((a, b) => b.view_count - a.view_count).slice(0, 5);
+
+const cards = [
+  { label: '已发布', value: stats.postCount, href: '/admin/posts?status=published', hint: '篇文章' },
+  { label: '草稿', value: stats.draftCount, href: '/admin/posts?status=draft', hint: '待完成' },
+  { label: 'TIL', value: stats.tilCount, href: '/admin/til', hint: '条记录' },
+  { label: '专栏', value: stats.seriesCount, href: '/admin/series', hint: '个系列' },
+  { label: '总阅读', value: stats.views, href: '/admin/posts', hint: '次访问' },
+  { label: '总点赞', value: stats.likes, href: '/admin/posts', hint: '次认可' },
+];
+---
+
+<AdminLayout title="仪表盘" user={user}>
+  <div class="mx-auto max-w-5xl">
+    <div class="grid grid-cols-2 gap-3 sm:grid-cols-3">
+      {
+        cards.map((card) => (
+          <a href={card.href} class="card card-hover p-4">
+            <p class="font-mono text-xl font-semibold">{card.value}</p>
+            <p class="mt-1 text-[11px] text-muted">
+              {card.label} · {card.hint}
+            </p>
+          </a>
+        ))
+      }
+    </div>
+
+    <div class="mt-4 flex flex-wrap gap-2">
+      <a href="/admin/posts/new" class="btn btn-primary btn-sm">写文章</a>
+      <a href="/admin/til" class="btn btn-sm">记一条 TIL</a>
+      <a href="/admin/settings" class="btn btn-sm">站点设置</a>
+    </div>
+
+    <div class="mt-8 grid gap-5 lg:grid-cols-2">
+      <section>
+        <div class="mb-3 flex items-end justify-between">
+          <h2 class="section-title">最近编辑</h2>
+          <a href="/admin/posts" class="text-[11px] text-muted hover:text-accent">全部 →</a>
+        </div>
+        <div class="card divide-y divide-line">
+          {
+            recent.map((post) => (
+              <a href={`/admin/posts/${post.id}`} class="flex items-center gap-3 px-4 py-2.5 hover:bg-surface2">
+                <span
+                  class:list={[
+                    'shrink-0 rounded px-1.5 py-px font-mono text-[10px]',
+                    post.status === 'published' ? 'bg-accentsoft text-accent' : 'bg-surface2 text-muted',
+                  ]}
+                >
+                  {post.status === 'published' ? '已发布' : '草稿'}
+                </span>
+                <span class="min-w-0 flex-1 truncate text-sm">{post.title}</span>
+                <span class="shrink-0 text-[10px] text-muted">{formatRelative(post.updated_at)}</span>
+              </a>
+            ))
+          }
+          {recent.length === 0 && <p class="px-4 py-8 text-center text-xs text-muted">还没有内容</p>}
+        </div>
+      </section>
+
+      <section>
+        <div class="mb-3 flex items-end justify-between">
+          <h2 class="section-title">草稿箱</h2>
+          <a href="/admin/posts?status=draft" class="text-[11px] text-muted hover:text-accent">全部 →</a>
+        </div>
+        <div class="card divide-y divide-line">
+          {
+            drafts.map((post) => (
+              <a href={`/admin/posts/${post.id}`} class="flex items-center gap-3 px-4 py-2.5 hover:bg-surface2">
+                <span class="min-w-0 flex-1 truncate text-sm">{post.title}</span>
+                <span class="shrink-0 text-[10px] text-muted">{post.word_count} 字</span>
+              </a>
+            ))
+          }
+          {drafts.length === 0 && <p class="px-4 py-8 text-center text-xs text-muted">没有草稿，很勤快</p>}
+        </div>
+      </section>
+
+      <section>
+        <div class="mb-3 flex items-end justify-between">
+          <h2 class="section-title">热门文章</h2>
+          <span class="text-[11px] text-muted">按阅读量</span>
+        </div>
+        <div class="card divide-y divide-line">
+          {
+            popular.map((post) => (
+              <a href={`/posts/${post.slug}`} target="_blank" class="flex items-center gap-3 px-4 py-2.5 hover:bg-surface2">
+                <span class="min-w-0 flex-1 truncate text-sm">{post.title}</span>
+                <span class="shrink-0 font-mono text-[10px] text-muted">{post.view_count} 阅读</span>
+              </a>
+            ))
+          }
+          {popular.length === 0 && <p class="px-4 py-8 text-center text-xs text-muted">暂无数据</p>}
+        </div>
+      </section>
+
+      <section>
+        <div class="mb-3 flex items-end justify-between">
+          <h2 class="section-title">最新 TIL</h2>
+          <a href="/admin/til" class="text-[11px] text-muted hover:text-accent">管理 →</a>
+        </div>
+        <div class="card divide-y divide-line">
+          {
+            tils.map((til) => (
+              <a href="/admin/til" class="flex items-center gap-3 px-4 py-2.5 hover:bg-surface2">
+                <span class="min-w-0 flex-1 truncate text-sm">{til.title}</span>
+                <span class="shrink-0 text-[10px] text-muted">{formatRelative(til.published_at)}</span>
+              </a>
+            ))
+          }
+          {tils.length === 0 && <p class="px-4 py-8 text-center text-xs text-muted">还没有 TIL</p>}
+        </div>
+      </section>
+    </div>
+
+    {
+      seriesList.length > 0 && (
+        <section class="mt-8">
+          <h2 class="section-title mb-3">专栏进度</h2>
+          <div class="grid gap-3 sm:grid-cols-2">
+            {seriesList.map((series) => (
+              <a href={`/admin/series/${series.id}`} class="card card-hover flex items-center justify-between p-4">
+                <span class="min-w-0">
+                  <span class="block truncate text-sm font-medium">{series.name}</span>
+                  <span class="mt-0.5 block text-[10px] text-muted">
+                    {series.status === 'completed' ? '已完结' : '连载中'} · {series.post_count ?? 0} 篇
+                  </span>
+                </span>
+                <span class="font-mono text-xs text-muted">→</span>
+              </a>
+            ))}
+          </div>
+        </section>
+      )
+    }
+  </div>
+</AdminLayout>

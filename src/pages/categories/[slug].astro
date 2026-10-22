@@ -1,0 +1,48 @@
+---
+import BaseLayout from '../../layouts/BaseLayout.astro';
+import Pagination from '../../components/Pagination.astro';
+import PostList from '../../components/PostList.astro';
+import { countPosts, getCategories, getCategoryBySlug, listPosts } from '../../lib/queries';
+import { getSettings } from '../../lib/settings';
+
+export const prerender = false;
+
+const { slug } = Astro.params;
+const category = slug ? await getCategoryBySlug(slug) : null;
+if (!category) return Astro.rewrite('/404');
+
+const settings = await getSettings();
+const perPage = settings.posts_per_page || 10;
+const current = Math.max(1, Number(Astro.url.searchParams.get('page') ?? 1) || 1);
+
+const [posts, total, categories] = await Promise.all([
+  listPosts({ limit: perPage, offset: (current - 1) * perPage, categorySlug: category.slug }),
+  countPosts({ categorySlug: category.slug }),
+  getCategories(),
+]);
+
+const totalPages = Math.max(1, Math.ceil(total / perPage));
+---
+
+<BaseLayout title={`分类：${category.name}`} description={category.description ?? undefined}>
+  <div class="wrap py-10">
+    <header class="mb-7">
+      <p class="mb-2 font-mono text-[11px] uppercase tracking-[0.16em] text-muted">分类</p>
+      <h1 class="flex items-center gap-2 text-2xl font-bold tracking-tight">
+        <span>{category.icon}</span>
+        {category.name}
+      </h1>
+      <p class="mt-1.5 text-sm text-muted">
+        共 {total} 篇{category.description ? ` · ${category.description}` : ''}
+      </p>
+    </header>
+
+    <PostList posts={posts} categories={categories} activeCategory={category.slug} />
+    <Pagination
+      current={current}
+      totalPages={totalPages}
+      basePath={`/categories/${category.slug}`}
+      query={current > 1 ? '' : ''}
+    />
+  </div>
+</BaseLayout>

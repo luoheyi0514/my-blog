@@ -1,0 +1,86 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+import { countTils, getTags, listTils } from '../lib/queries';
+import { formatDate, formatDateLong } from '../lib/utils';
+
+const activeTag = Astro.url.searchParams.get('tag') ?? '';
+const [tils, total, tags] = await Promise.all([
+  listTils({ tagSlug: activeTag || undefined, limit: 100 }),
+  countTils({ tagSlug: activeTag || undefined }),
+  getTags(),
+]);
+
+const tilTags = tags.filter((tag) => (tag.count ?? 0) > 0).slice(0, 12);
+const activeTagName = tags.find((tag) => tag.slug === activeTag)?.name;
+---
+
+<BaseLayout title="TIL" description="Today I Learned —— 每天学到的小知识与碎片笔记。">
+  <div class="wrap-narrow py-10">
+    <header class="mb-7">
+      <h1 class="text-2xl font-bold tracking-tight">TIL</h1>
+      <p class="mt-1.5 text-sm text-muted">
+        Today I Learned · {total} 条记录{activeTagName ? ` · #${activeTagName}` : ''}
+      </p>
+    </header>
+
+    <div class="mb-7 flex flex-wrap gap-1.5">
+      <a
+        href="/til"
+        class:list={[
+          'rounded-md border px-2.5 py-1 text-xs transition',
+          !activeTag ? 'border-transparent bg-text font-medium text-bg' : 'border-line text-muted hover:text-text',
+        ]}
+      >
+        全部
+      </a>
+      {
+        tilTags.map((tag) => (
+          <a
+            href={`/til?tag=${tag.slug}`}
+            class:list={[
+              'rounded-md border px-2.5 py-1 text-xs transition',
+              activeTag === tag.slug
+                ? 'border-transparent bg-text font-medium text-bg'
+                : 'border-line text-muted hover:text-text',
+            ]}
+          >
+            #{tag.name}
+          </a>
+        ))
+      }
+    </div>
+
+    <div class="relative space-y-5 border-l border-line pl-5">
+      {
+        tils.map((til) => (
+          <article id={`til-${til.id}`} class="relative scroll-mt-24">
+            <div class="timeline-dot absolute -left-[1.55rem]" />
+            <div class="mb-1 flex flex-wrap items-center gap-2">
+              <time class="font-mono text-[10.5px] text-muted" datetime={til.published_at ?? ''}>
+                {formatDateLong(til.published_at)}
+              </time>
+              {til.tags?.map((tag) => (
+                <a href={`/til?tag=${tag.slug}`} class="chip py-px text-[10px]">
+                  #{tag.name}
+                </a>
+              ))}
+              <a href={`#til-${til.id}`} class="ml-auto font-mono text-[10px] text-muted hover:text-accent">
+                #{til.id}
+              </a>
+            </div>
+            <h2 class="text-[0.97rem] font-semibold leading-snug">{til.title}</h2>
+            <div class="prose mt-2 text-[0.9rem]" set:html={til.content_html} />
+          </article>
+        ))
+      }
+    </div>
+
+    {
+      tils.length === 0 && (
+        <div class="card p-10 text-center text-sm text-muted">
+          还没有记录，去 <a href="/admin/til" class="link-accent">后台</a> 记一条。
+        </div>
+      )
+    }
+  </div>
+</BaseLayout>

@@ -1,0 +1,116 @@
+---
+import AdminLayout from '../../layouts/AdminLayout.astro';
+import { getTags } from '../../lib/queries';
+import { one, run } from '../../lib/db';
+import { nowIso, slugifyTag } from '../../lib/utils';
+
+export const prerender = false;
+
+const user = Astro.locals.user!;
+
+if (Astro.request.method === 'POST') {
+  const form = await Astro.request.formData();
+  const action = String(form.get('action') ?? '');
+  const id = Number(form.get('id') ?? 0);
+
+  if (action === 'update' && id) {
+    const name = String(form.get('name') ?? '').trim();
+    const slug = String(form.get('slug') ?? '').trim() || slugifyTag(name);
+    if (name) await run('UPDATE tags SET name = ?, slug = ? WHERE id = ?', [name, slug, id]);
+  } else if (action === 'delete' && id) {
+    await run('DELETE FROM post_tags WHERE tag_id = ?', [id]);
+    await run('DELETE FROM til_tags WHERE tag_id = ?', [id]);
+    await run('DELETE FROM tags WHERE id = ?', [id]);
+  } else if (action === 'merge' && id) {
+    const targetName = String(form.get('target') ?? '').trim();
+    if (targetName) {
+      const slug = slugifyTag(targetName);
+      await run('INSERT OR IGNORE INTO tags (name, slug, created_at) VALUES (?, ?, ?)', [targetName, slug, nowIso()]);
+      const target = await one<{ id: number }>('SELECT id FROM tags WHERE slug = ? OR name = ?', [slug, targetName]);
+      if (target && target.id !== id) {
+        await run('UPDATE OR IGNORE post_tags SET tag_id = ? WHERE tag_id = ?', [target.id, id]);
+        await run('DELETE FROM post_tags WHERE tag_id = ?', [id]);
+        await run('UPDATE OR IGNORE til_tags SET tag_id = ? WHERE tag_id = ?', [target.id, id]);
+        await run('DELETE FROM til_tags WHERE tag_id = ?', [id]);
+        await run('DELETE FROM tags WHERE id = ?', [id]);
+      }
+    }
+  } else if (action === 'cleanup') {
+    await run('DELETE FROM tags WHERE id NOT IN (SELECT tag_id FROM post_tags UNION SELECT tag_id FROM til_tags)');
+  } else if (action === 'create') {
+    const name = String(form.get('name') ?? '').trim();
+    if (name) {
+      await run('INSERT OR IGNORE INTO tags (name, slug, created_at) VALUES (?, ?, ?)', [name, slugifyTag(name), nowIso()]);
+    }
+  }
+
+  return Astro.redirect('/admin/tags', 303);
+}
+
+const tags = await getTags();
+const unused = tags.filter((tag) => (tag.count ?? 0) === 0).length;
+---
+
+<AdminLayout title="标签" user={user}>
+  <div class="mx-auto max-w-3xl">
+    <div class="flex flex-wrap items-center gap-2">
+      <form method="post" class="flex flex-1 gap-1.5">
+        <input type="hidden" name="action" value="create" />
+        <input name="name" placeholder="新建标签" class="field h-9 max-w-52 py-1 text-xs" />
+        <button type="submit" class="btn btn-sm">添加</button>
+      </form>
+
+      <form method="post">
+        <input type="hidden" name="action" value="cleanup" />
+        <button type="submit" class="btn btn-sm" onclick="return confirm('清理没有被任何内容使用的标签？')">
+          清理未使用（{unused}）
+        </button>
+      </form>
+    </div>
+
+    <div class="mt-5 space-y-2">
+      {
+        tags.map((tag) => (
+          <div class="card flex flex-wrap items-end gap-2 p-3">
+            <form method="post" class="flex flex-wrap items-end gap-2">
+              <input type="hidden" name="id" value={tag.id} />
+              <div>
+                <label class="label">名称</label>
+                <input name="name" value={tag.name} class="field w-36" />
+              </div>
+              <div>
+                <label class="label">slug</label>
+                <input name="slug" value={tag.slug} class="field w-40 font-mono text-xs" />
+              </div>
+              <span class="pb-2 font-mono text-[10px] text-muted">{tag.count ?? 0} 篇</span>
+              <button type="submit" name="action" value="update" class="btn btn-sm mb-0.5">保存</button>
+              <button
+                type="submit"
+                name="action"
+                value="delete"
+                class="btn btn-sm btn-danger mb-0.5"
+                onclick="return confirm('删除标签会同时从所有文章移除，确认？')"
+              >
+                删除
+              </button>
+            </form>
+
+            <form method="post" class="ml-auto flex items-end gap-1.5">
+              <input type="hidden" name="action" value="merge" />
+              <input type="hidden" name="id" value={tag.id} />
+              <div>
+                <label class="label">合并到</label>
+                <input name="target" placeholder="目标标签名" class="field h-8 w-36 py-1 text-xs" />
+              </div>
+              <button type="submit" class="btn btn-sm mb-0.5" onclick="return confirm('合并后原标签会被删除')">
+                合并
+              </button>
+            </form>
+          </div>
+        ))
+      }
+
+      {tags.length === 0 && <p class="card p-10 text-center text-xs text-muted">还没有标签</p>}
+    </div>
+  </div>
+</AdminLayout>

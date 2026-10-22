@@ -1,0 +1,61 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+import { getArchive } from '../lib/queries';
+import { formatDateShort, groupByYearMonth } from '../lib/utils';
+
+const posts = await getArchive();
+const groups = groupByYearMonth(posts);
+const total = posts.length;
+---
+
+<BaseLayout title="归档" description="按时间浏览全部文章。">
+  <div class="wrap-narrow py-10">
+    <header class="mb-9">
+      <h1 class="text-2xl font-bold tracking-tight">归档</h1>
+      <p class="mt-1.5 text-sm text-muted">共 {total} 篇文章 · 继续加油</p>
+    </header>
+
+    <div class="space-y-10">
+      {
+        groups.map((group) => (
+          <section>
+            <div class="mb-4 flex items-baseline gap-3">
+              <h2 class="font-mono text-xl font-semibold tracking-tight">{group.year}</h2>
+              <span class="text-[11px] text-muted">{group.count} 篇</span>
+              <div class="ml-1 h-px flex-1 bg-line" />
+            </div>
+
+            <div class="space-y-6">
+              {group.months.map((month) => (
+                <div>
+                  <p class="mb-2 text-[11px] font-medium tracking-wide text-muted">{month.label}</p>
+                  <ul class="space-y-1.5">
+                    {month.items.map((post) => (
+                      <li class="group flex items-baseline gap-3">
+                        <span class="shrink-0 font-mono text-[11px] text-muted">
+                          {formatDateShort(post.published_at)}
+                        </span>
+                        <a href={`/posts/${post.slug}`} class="text-sm transition group-hover:text-accent">
+                          {post.title}
+                        </a>
+                        {post.category_name && (
+                          <span class="hidden shrink-0 text-[10px] text-muted sm:inline">
+                            {post.category_name}
+                          </span>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ))}
+            </div>
+          </section>
+        ))
+      }
+    </div>
+
+    {
+      groups.length === 0 && <div class="card p-10 text-center text-sm text-muted">还没有文章</div>
+    }
+  </div>
+</BaseLayout>

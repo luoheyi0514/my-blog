@@ -1,0 +1,663 @@
+---
+import type { Category, Post, Series, Tag } from '../../lib/types';
+import { toLocalInput } from '../../lib/utils';
+
+interface Props {
+  post: (Partial<Post> & { tags?: Tag[] }) | null;
+  categories: Category[];
+  seriesList: Series[];
+  allTags: Tag[];
+  isNew: boolean;
+}
+
+const { post, categories, seriesList, allTags, isNew } = Astro.props;
+
+const tagsValue = (post?.tags ?? []).map((tag) => tag.name).join(', ');
+const statusLabel = post?.status === 'published' ? '已发布' : '草稿';
+---
+
+<div
+  class="editor-root"
+  data-editor
+  data-post-id={post?.id ?? ''}
+  data-status={post?.status ?? 'draft'}
+  data-slug={post?.slug ?? ''}
+>
+  <div class="mb-3 flex flex-wrap items-center gap-2">
+    <a href="/admin/posts" class="btn btn-sm btn-ghost text-muted">← 返回</a>
+    <span
+      id="editor-status"
+      class:list={[
+        'rounded px-1.5 py-0.5 font-mono text-[10px]',
+        post?.status === 'published' ? 'bg-accentsoft text-accent' : 'bg-surface2 text-muted',
+      ]}
+    >
+      {statusLabel}
+    </span>
+    <span id="save-state" class="text-[11px] text-muted">{isNew ? '尚未保存' : '已保存'}</span>
+
+    <div class="ml-auto flex items-center gap-1.5">
+      <button type="button" id="btn-preview" class="btn btn-sm">预览</button>
+      <button type="button" id="btn-save" class="btn btn-sm">保存草稿</button>
+      <button type="button" id="btn-publish" class="btn btn-sm btn-accent">发布</button>
+    </div>
+  </div>
+
+  <div class="mb-3">
+    <input
+      id="f-title"
+      type="text"
+      value={post?.title ?? ''}
+      placeholder="文章标题…"
+      class="w-full border-0 border-b border-line bg-transparent px-0 py-2 text-xl font-semibold tracking-tight outline-none placeholder:text-muted/60 focus:border-accent"
+    />
+  </div>
+
+  <div id="restore-banner" class="mb-3 hidden rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs">
+    发现本地未保存的编辑内容
+    <button type="button" id="btn-restore" class="ml-2 underline">恢复</button>
+    <button type="button" id="btn-discard" class="ml-2 text-muted underline">忽略</button>
+  </div>
+
+  <div class="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_280px]">
+    <section class="card overflow-hidden">
+      <div class="flex flex-wrap items-center gap-0.5 border-b border-line bg-surface2 px-2 py-1.5">
+        <div class="mr-auto flex rounded-md border border-line bg-surface p-0.5 text-[11px]" id="view-switch">
+          <button type="button" data-view="edit" class="rounded px-2 py-0.5 bg-text text-bg">编辑</button>
+          <button type="button" data-view="both" class="rounded px-2 py-0.5 text-muted">分屏</button>
+          <button type="button" data-view="preview" class="rounded px-2 py-0.5 text-muted">预览</button>
+        </div>
+
+        {
+          [
+            { action: 'bold', label: 'B', title: '加粗 ⌘B' },
+            { action: 'italic', label: 'I', title: '斜体 ⌘I' },
+            { action: 'strike', label: 'S', title: '删除线' },
+            { action: 'code', label: '</>', title: '行内代码' },
+            { action: 'codeblock', label: '{ }', title: '代码块' },
+            { action: 'h2', label: 'H2', title: '二级标题' },
+            { action: 'h3', label: 'H3', title: '三级标题' },
+            { action: 'quote', label: '”', title: '引用' },
+            { action: 'ul', label: '•', title: '无序列表' },
+            { action: 'ol', label: '1.', title: '有序列表' },
+            { action: 'task', label: '☑', title: '任务列表' },
+            { action: 'link', label: '🔗', title: '链接 ⌘K' },
+            { action: 'image', label: '🖼', title: '图片' },
+            { action: 'table', label: '▦', title: '表格' },
+            { action: 'callout', label: '!', title: '提示块' },
+            { action: 'hr', label: '—', title: '分割线' },
+          ].map((item) => (
+            <button
+              type="button"
+              data-md-action={item.action}
+              title={item.title}
+              class="rounded px-1.5 py-1 font-mono text-[11px] text-muted transition hover:bg-surface hover:text-text"
+            >
+              {item.label}
+            </button>
+          ))
+        }
+      </div>
+
+      <textarea
+        id="f-content"
+        class="editor block h-[calc(100vh-330px)] min-h-[420px] w-full resize-none border-0 bg-surface px-4 py-3 outline-none"
+        placeholder="开始写吧… 支持 Markdown，可以直接粘贴截图"
+        spellcheck="false">{post?.content_md ?? ''}</textarea>
+
+      <div class="flex items-center gap-3 border-t border-line bg-surface2 px-3 py-1 text-[10px] text-muted">
+        <span id="editor-words">0 字</span>
+        <span id="editor-readtime">约 1 分钟</span>
+        <span class="ml-auto font-mono">Markdown</span>
+      </div>
+    </section>
+
+    <section class="card hidden overflow-hidden xl:block" id="preview-pane">
+      <div class="flex items-center justify-between border-b border-line bg-surface2 px-3 py-2 text-[11px] text-muted">
+        <span>实时预览</span>
+        <span id="preview-state" class="font-mono">—</span>
+      </div>
+      <div class="prose h-[calc(100vh-330px)] min-h-[420px] overflow-y-auto px-5 py-4" id="preview-content">
+        <p class="text-sm text-muted">开始输入后这里会显示预览</p>
+      </div>
+    </section>
+
+    <aside class="space-y-4">
+      <div class="card p-4">
+        <p class="section-title mb-3">文章设置</p>
+
+        <div class="space-y-3">
+          <div>
+            <label class="label" for="f-slug">链接别名 slug</label>
+            <input id="f-slug" class="field font-mono text-xs" value={post?.slug ?? ''} placeholder="留空自动生成" />
+          </div>
+
+          <div>
+            <label class="label" for="f-description">摘要</label>
+            <textarea id="f-description" rows="3" class="field text-xs" placeholder="留空则自动截取正文">{post?.description ?? ''}</textarea>
+          </div>
+
+          <div>
+            <label class="label" for="f-category">分类</label>
+            <select id="f-category" class="field text-xs">
+              <option value="">未分类</option>
+              {
+                categories.map((category) => (
+                  <option value={category.id} selected={post?.category_id === category.id}>
+                    {category.name}
+                  </option>
+                ))
+              }
+            </select>
+          </div>
+
+          <div class="grid grid-cols-2 gap-2">
+            <div>
+              <label class="label" for="f-series">专栏</label>
+              <select id="f-series" class="field text-xs">
+                <option value="">无</option>
+                {
+                  seriesList.map((series) => (
+                    <option value={series.id} selected={post?.series_id === series.id}>
+                      {series.name}
+                    </option>
+                  ))
+                }
+              </select>
+            </div>
+            <div>
+              <label class="label" for="f-series-order">序号</label>
+              <input
+                id="f-series-order"
+                type="number"
+                min="1"
+                class="field text-xs"
+                value={post?.series_order ?? ''}
+              />
+            </div>
+          </div>
+
+          <div>
+            <label class="label" for="f-tags">标签（逗号分隔）</label>
+            <input id="f-tags" class="field text-xs" value={tagsValue} list="tag-options" placeholder="TypeScript, 工程化" />
+            <datalist id="tag-options">
+              {allTags.map((tag) => <option value={tag.name} />)}
+            </datalist>
+          </div>
+
+          <div>
+            <label class="label" for="f-cover">封面图</label>
+            <div class="flex gap-1.5">
+              <input id="f-cover" class="field font-mono text-[11px]" value={post?.cover_url ?? ''} placeholder="/api/media/1" />
+              <button type="button" id="btn-cover" class="btn btn-sm shrink-0">上传</button>
+            </div>
+          </div>
+
+          <div>
+            <label class="label" for="f-published">发布时间</label>
+            <input
+              id="f-published"
+              type="datetime-local"
+              class="field text-xs"
+              value={toLocalInput(post?.published_at)}
+            />
+            <p class="mt-1 text-[10px] text-muted">设为未来时间即为定时发布</p>
+          </div>
+
+          <label class="flex items-center gap-2 text-xs text-textsoft">
+            <input id="f-pinned" type="checkbox" checked={Boolean(post?.pinned)} class="accent-current" />
+            置顶
+          </label>
+
+          <label class="flex items-center gap-2 text-xs text-textsoft">
+            <input
+              id="f-comments"
+              type="checkbox"
+              checked={post?.allow_comments === 0 ? false : true}
+              class="accent-current"
+            />
+            允许评论
+          </label>
+        </div>
+
+        {
+          !isNew && (
+            <div class="mt-4 space-y-2 border-t border-line pt-3">
+              <a href={`/posts/${post?.slug}`} target="_blank" class="btn btn-sm w-full">前台查看</a>
+              <button
+                type="button"
+                id="btn-delete"
+                class="btn btn-sm btn-danger w-full"
+                data-post={post?.id}
+              >
+                移入回收站
+              </button>
+            </div>
+          )
+        }
+      </div>
+
+      <div class="card p-4 text-[10px] leading-relaxed text-muted">
+        <p class="mb-1.5 font-medium text-textsoft">快捷键</p>
+        <p>⌘S 保存 · ⌘B 加粗 · ⌘I 斜体 · ⌘K 链接</p>
+        <p class="mt-2">提示块语法：<code class="font-mono">&gt; [!TIP]</code></p>
+        <p>内容变化后每 30 秒自动保存</p>
+      </div>
+    </aside>
+  </div>
+
+  <input type="file" id="file-input" accept="image/*" class="hidden" />
+  <input type="file" id="cover-input" accept="image/*" class="hidden" />
+</div>
+
+<script>
+  const root = document.querySelector('[data-editor]') as HTMLElement;
+  if (root) {
+    const q = <T extends HTMLElement>(selector: string) => root.querySelector(selector) as T;
+    const titleEl = q<HTMLInputElement>('#f-title');
+    const contentEl = q<HTMLTextAreaElement>('#f-content');
+    const slugEl = q<HTMLInputElement>('#f-slug');
+    const descEl = q<HTMLTextAreaElement>('#f-description');
+    const categoryEl = q<HTMLSelectElement>('#f-category');
+    const seriesEl = q<HTMLSelectElement>('#f-series');
+    const seriesOrderEl = q<HTMLInputElement>('#f-series-order');
+    const tagsEl = q<HTMLInputElement>('#f-tags');
+    const coverEl = q<HTMLInputElement>('#f-cover');
+    const publishedEl = q<HTMLInputElement>('#f-published');
+    const pinnedEl = q<HTMLInputElement>('#f-pinned');
+    const commentsEl = q<HTMLInputElement>('#f-comments');
+    const saveState = q<HTMLElement>('#save-state');
+    const previewContent = q<HTMLElement>('#preview-content');
+    const previewState = q<HTMLElement>('#preview-state');
+    const wordsEl = q<HTMLElement>('#editor-words');
+    const readtimeEl = q<HTMLElement>('#editor-readtime');
+    const statusBadge = q<HTMLElement>('#editor-status');
+    const fileInput = q<HTMLInputElement>('#file-input');
+    const coverInput = q<HTMLInputElement>('#cover-input');
+
+    let postId: number | null = Number(root.dataset.postId) || null;
+    let dirty = false;
+    let saving = false;
+    let slugManuallyEdited = Boolean(slugEl.value);
+
+    const storageKey = `blog-draft:${postId ?? 'new'}`;
+
+    const setSaveState = (text: string, tone = 'muted') => {
+      if (!saveState) return;
+      saveState.textContent = text;
+      saveState.className =
+        tone === 'error' ? 'text-[11px] text-red-500' : tone === 'ok' ? 'text-[11px] text-accent' : 'text-[11px] text-muted';
+    };
+
+    const collect = (action: string) => ({
+      id: postId,
+      title: titleEl.value.trim(),
+      slug: slugEl.value.trim() || undefined,
+      description: descEl.value.trim() || undefined,
+      content_md: contentEl.value,
+      category_id: categoryEl.value ? Number(categoryEl.value) : null,
+      series_id: seriesEl.value ? Number(seriesEl.value) : null,
+      series_order: seriesOrderEl.value ? Number(seriesOrderEl.value) : null,
+      cover_url: coverEl.value.trim() || null,
+      published_at: publishedEl.value ? new Date(publishedEl.value).toISOString() : null,
+      pinned: pinnedEl.checked,
+      allow_comments: commentsEl.checked,
+      tags: tagsEl.value
+        .split(/[,，]/)
+        .map((tag) => tag.trim())
+        .filter(Boolean),
+      action,
+    });
+
+    const stats = () => {
+      const text = contentEl.value
+        .replace(/```[\s\S]*?```/g, ' ')
+        .replace(/[#>*_`~\-|]/g, ' ');
+      const cn = (text.match(/[\u4e00-\u9fa5]/g) || []).length;
+      const en = (text.replace(/[\u4e00-\u9fa5]/g, ' ').match(/[A-Za-z0-9_'-]+/g) || []).length;
+      const words = cn + en;
+      wordsEl.textContent = `${words} 字`;
+      readtimeEl.textContent = `约 ${Math.max(1, Math.round(words / 300))} 分钟`;
+    };
+
+    const markDirty = () => {
+      dirty = true;
+      setSaveState('未保存');
+      stats();
+      localStorage.setItem(
+        storageKey,
+        JSON.stringify({
+          title: titleEl.value,
+          content: contentEl.value,
+          at: Date.now(),
+        }),
+      );
+      schedulePreview();
+    };
+
+    // 预览
+    let previewTimer: ReturnType<typeof setTimeout>;
+    const schedulePreview = () => {
+      clearTimeout(previewTimer);
+      previewTimer = setTimeout(renderPreview, 500);
+    };
+
+    const renderPreview = async () => {
+      if (!contentEl.value.trim()) {
+        previewContent.innerHTML = '<p class="text-sm text-muted">开始输入后这里会显示预览</p>';
+        return;
+      }
+      previewState.textContent = '渲染中…';
+      try {
+        const response = await fetch('/api/admin/preview', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ markdown: contentEl.value }),
+        });
+        const data = await response.json();
+        previewContent.innerHTML = data.html || '';
+        previewState.textContent = '已更新';
+      } catch {
+        previewState.textContent = '渲染失败';
+      }
+    };
+
+    // 保存
+    const save = async (action: 'save' | 'publish', silent = false) => {
+      if (saving) return false;
+      if (!titleEl.value.trim()) {
+        if (!silent) {
+          titleEl.focus();
+          setSaveState('请先填写标题', 'error');
+        }
+        return false;
+      }
+
+      saving = true;
+      setSaveState('保存中…');
+      try {
+        const response = await fetch('/api/admin/save', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify(collect(action)),
+        });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || '保存失败');
+
+        if (!postId && data.id) {
+          postId = data.id;
+          root.dataset.postId = String(data.id);
+          history.replaceState({}, '', `/admin/posts/${data.id}`);
+        }
+
+        dirty = false;
+        localStorage.removeItem(`blog-draft:${postId}`);
+        localStorage.removeItem('blog-draft:new');
+        slugEl.value = data.slug ?? slugEl.value;
+        slugManuallyEdited = true;
+
+        const time = new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+        setSaveState(`已保存 ${time}`, 'ok');
+
+        if (action === 'publish') {
+          statusBadge.textContent = '已发布';
+          statusBadge.className = 'rounded px-1.5 py-0.5 font-mono text-[10px] bg-accentsoft text-accent';
+          window.location.href = '/admin/posts';
+        }
+        return true;
+      } catch (error) {
+        setSaveState(error instanceof Error ? error.message : '保存失败', 'error');
+        return false;
+      } finally {
+        saving = false;
+      }
+    };
+
+    // 自动保存
+    setInterval(() => {
+      if (dirty && postId) save('save', true);
+    }, 30000);
+
+    // 工具栏
+    const wrapSelection = (before: string, after = before, placeholder = '') => {
+      const { selectionStart: start, selectionEnd: end, value } = contentEl;
+      const selected = value.slice(start, end) || placeholder;
+      contentEl.value = `${value.slice(0, start)}${before}${selected}${after}${value.slice(end)}`;
+      contentEl.focus();
+      contentEl.selectionStart = start + before.length;
+      contentEl.selectionEnd = start + before.length + selected.length;
+      markDirty();
+    };
+
+    const insertBlock = (text: string) => {
+      const { selectionStart: start, value } = contentEl;
+      const prefix = start > 0 && !value.slice(0, start).endsWith('\n') ? '\n' : '';
+      contentEl.value = `${value.slice(0, start)}${prefix}${text}${value.slice(start)}`;
+      contentEl.focus();
+      contentEl.selectionStart = contentEl.selectionEnd = start + prefix.length + text.length;
+      markDirty();
+    };
+
+    const actions: Record<string, () => void> = {
+      bold: () => wrapSelection('**', '**', '加粗文字'),
+      italic: () => wrapSelection('*', '*', '斜体文字'),
+      strike: () => wrapSelection('~~', '~~', '删除线'),
+      code: () => wrapSelection('`', '`', 'code'),
+      codeblock: () => insertBlock('\n```ts\n// code\n```\n'),
+      h2: () => insertBlock('## 小标题\n'),
+      h3: () => insertBlock('### 小标题\n'),
+      quote: () => insertBlock('> 引用内容\n'),
+      ul: () => insertBlock('- 列表项\n- 列表项\n'),
+      ol: () => insertBlock('1. 列表项\n2. 列表项\n'),
+      task: () => insertBlock('- [ ] 待办\n- [x] 已完成\n'),
+      link: () => wrapSelection('[', '](https://)', '链接文字'),
+      image: () => fileInput.click(),
+      table: () => insertBlock('\n| 列 1 | 列 2 |\n| --- | --- |\n| 内容 | 内容 |\n'),
+      callout: () => insertBlock('> [!TIP]\n> 提示内容\n'),
+      hr: () => insertBlock('\n---\n'),
+    };
+
+    root.querySelectorAll<HTMLButtonElement>('[data-md-action]').forEach((button) => {
+      button.addEventListener('click', () => actions[button.dataset.mdAction ?? '']?.());
+    });
+
+    // 图片上传
+    const compress = (file: File): Promise<{ blob: Blob; width: number; height: number }> =>
+      new Promise((resolve) => {
+        const img = new Image();
+        img.onload = () => {
+          const maxWidth = 1920;
+          const scale = Math.min(1, maxWidth / img.width);
+          const width = Math.round(img.width * scale);
+          const height = Math.round(img.height * scale);
+          const canvas = document.createElement('canvas');
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext('2d');
+          ctx?.drawImage(img, 0, 0, width, height);
+          canvas.toBlob(
+            (blob) => resolve({ blob: blob ?? file, width, height }),
+            'image/webp',
+            0.88,
+          );
+        };
+        img.onerror = () => resolve({ blob: file, width: 0, height: 0 });
+        img.src = URL.createObjectURL(file);
+      });
+
+    const uploadImage = async (file: File, onDone: (url: string) => void) => {
+      const { blob, width, height } = await compress(file);
+      const form = new FormData();
+      form.append('file', new File([blob], file.name.replace(/\.\w+$/, '') + '.webp', { type: blob.type }));
+      form.append('width', String(width));
+      form.append('height', String(height));
+
+      setSaveState('上传图片中…');
+      try {
+        const response = await fetch('/api/admin/upload', { method: 'POST', body: form });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || '上传失败');
+        onDone(data.url);
+        setSaveState('图片已插入', 'ok');
+      } catch (error) {
+        setSaveState(error instanceof Error ? error.message : '上传失败', 'error');
+      }
+    };
+
+    contentEl.addEventListener('paste', (event) => {
+      const items = Array.from(event.clipboardData?.items ?? []);
+      const imageItem = items.find((item) => item.type.startsWith('image/'));
+      if (!imageItem) return;
+      const file = imageItem.getAsFile();
+      if (!file) return;
+      event.preventDefault();
+      uploadImage(file, (url) => insertBlock(`\n![图片](${url})\n`));
+    });
+
+    contentEl.addEventListener('dragover', (event) => event.preventDefault());
+    contentEl.addEventListener('drop', (event) => {
+      const file = event.dataTransfer?.files?.[0];
+      if (!file || !file.type.startsWith('image/')) return;
+      event.preventDefault();
+      uploadImage(file, (url) => insertBlock(`\n![图片](${url})\n`));
+    });
+
+    fileInput.addEventListener('change', () => {
+      const file = fileInput.files?.[0];
+      if (file) uploadImage(file, (url) => insertBlock(`\n![图片](${url})\n`));
+      fileInput.value = '';
+    });
+
+    q<HTMLButtonElement>('#btn-cover').addEventListener('click', () => coverInput.click());
+    coverInput.addEventListener('change', () => {
+      const file = coverInput.files?.[0];
+      if (file) uploadImage(file, (url) => (coverEl.value = url));
+      coverInput.value = '';
+    });
+
+    // 视图切换
+    root.querySelectorAll<HTMLButtonElement>('[data-view]').forEach((button) => {
+      button.addEventListener('click', () => {
+        const view = button.dataset.view;
+        const previewPane = document.getElementById('preview-pane');
+        const editorPane = contentEl.closest('section') as HTMLElement;
+        root.querySelectorAll('[data-view]').forEach((node) => {
+          node.className = 'rounded px-2 py-0.5 text-muted';
+        });
+        button.className = 'rounded px-2 py-0.5 bg-text text-bg';
+
+        if (view === 'preview') {
+          editorPane.classList.add('hidden');
+          previewPane?.classList.remove('hidden');
+        } else if (view === 'edit') {
+          editorPane.classList.remove('hidden');
+          previewPane?.classList.add('hidden');
+        } else {
+          editorPane.classList.remove('hidden');
+          previewPane?.classList.remove('hidden');
+        }
+      });
+    });
+
+    // 事件绑定
+    [titleEl, descEl, tagsEl, coverEl, slugEl, seriesOrderEl].forEach((el) =>
+      el.addEventListener('input', markDirty),
+    );
+    [categoryEl, seriesEl, publishedEl].forEach((el) => el.addEventListener('change', markDirty));
+    [pinnedEl, commentsEl].forEach((el) => el.addEventListener('change', markDirty));
+    contentEl.addEventListener('input', markDirty);
+
+    titleEl.addEventListener('blur', () => {
+      if (!slugManuallyEdited) slugEl.value = '';
+    });
+    slugEl.addEventListener('input', () => {
+      slugManuallyEdited = Boolean(slugEl.value);
+    });
+
+    q<HTMLButtonElement>('#btn-save').addEventListener('click', () => save('save'));
+    q<HTMLButtonElement>('#btn-publish').addEventListener('click', () => {
+      if (confirm('发布后会立即在前台可见，确认发布？')) save('publish');
+    });
+    q<HTMLButtonElement>('#btn-preview').addEventListener('click', () => {
+      if (!postId) {
+        setSaveState('请先保存一次的草稿，再预览', 'error');
+        return;
+      }
+      window.open(`/posts/${slugEl.value || root.dataset.slug}?preview=1`, '_blank');
+    });
+
+    const deleteButton = document.getElementById('btn-delete');
+    deleteButton?.addEventListener('click', async () => {
+      if (!postId) return;
+      if (!confirm('移入回收站？30 天内可以恢复')) return;
+      const response = await fetch('/api/admin/delete', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ id: postId }),
+      });
+      if (response.ok) window.location.href = '/admin/posts';
+    });
+
+    document.addEventListener('keydown', (event) => {
+      const meta = event.metaKey || event.ctrlKey;
+      if (!meta) return;
+      const key = event.key.toLowerCase();
+      if (key === 's') {
+        event.preventDefault();
+        save('save');
+      } else if (key === 'b') {
+        event.preventDefault();
+        actions.bold();
+      } else if (key === 'i') {
+        event.preventDefault();
+        actions.italic();
+      } else if (key === 'k') {
+        event.preventDefault();
+        actions.link();
+      }
+    });
+
+    window.addEventListener('beforeunload', (event) => {
+      if (dirty) {
+        event.preventDefault();
+        event.returnValue = '';
+      }
+    });
+
+    // 恢复本地草稿
+    const stored = localStorage.getItem(storageKey);
+    if (stored) {
+      try {
+        const parsed = JSON.parse(stored);
+        if (parsed?.content && parsed.content !== contentEl.value) {
+          const banner = document.getElementById('restore-banner');
+          banner?.classList.remove('hidden');
+          document.getElementById('btn-restore')?.addEventListener('click', () => {
+            titleEl.value = parsed.title ?? titleEl.value;
+            contentEl.value = parsed.content;
+            banner?.classList.add('hidden');
+            markDirty();
+            renderPreview();
+          });
+          document.getElementById('btn-discard')?.addEventListener('click', () => {
+            localStorage.removeItem(storageKey);
+            banner?.classList.add('hidden');
+          });
+        }
+      } catch {}
+    }
+
+    // 滚动同步
+    const previewPane = document.getElementById('preview-pane');
+    contentEl.addEventListener('scroll', () => {
+      if (!previewPane || previewPane.classList.contains('hidden')) return;
+      const max = contentEl.scrollHeight - contentEl.clientHeight;
+      if (max <= 0) return;
+      const ratio = contentEl.scrollTop / max;
+      previewContent.scrollTop = ratio * (previewContent.scrollHeight - previewContent.clientHeight);
+    });
+
+    stats();
+    renderPreview();
+  }
+</script>

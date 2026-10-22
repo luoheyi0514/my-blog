@@ -1,0 +1,57 @@
+---
+import type { Category, PostListItem } from '../lib/types';
+import PostCard from './PostCard.astro';
+
+interface Props {
+  posts: PostListItem[];
+  categories?: Category[];
+  activeCategory?: string;
+  showCover?: boolean;
+}
+
+const { posts, categories = [], activeCategory = '', showCover = true } = Astro.props;
+---
+
+{
+  categories.length > 0 && (
+    <div class="mb-6 flex flex-wrap gap-1.5">
+      <a
+        href="/posts"
+        class:list={[
+          'rounded-md border px-2.5 py-1 text-xs transition',
+          !activeCategory
+            ? 'border-transparent bg-text font-medium text-bg'
+            : 'border-line text-muted hover:text-text',
+        ]}
+      >
+        全部
+      </a>
+      {categories.map((category) => (
+        <a
+          href={`/categories/${category.slug}`}
+          class:list={[
+            'rounded-md border px-2.5 py-1 text-xs transition',
+            activeCategory === category.slug
+              ? 'border-transparent bg-text font-medium text-bg'
+              : 'border-line text-muted hover:text-text',
+          ]}
+        >
+          {category.name}
+          <span class="ml-1 font-mono text-[10px] opacity-60">{category.post_count ?? 0}</span>
+        </a>
+      ))}
+    </div>
+  )
+}
+
+<div class="grid gap-3">
+  {posts.map((post) => <PostCard post={post} showCover={showCover} />)}
+</div>
+
+{
+  posts.length === 0 && (
+    <div class="card p-10 text-center">
+      <p class="text-sm text-muted">这里还没有内容</p>
+    </div>
+  )
+}

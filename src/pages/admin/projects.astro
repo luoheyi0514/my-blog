@@ -1,0 +1,145 @@
+---
+import AdminLayout from '../../layouts/AdminLayout.astro';
+import { getProjects } from '../../lib/queries';
+import { run, scalar } from '../../lib/db';
+import { nowIso, parseJson } from '../../lib/utils';
+
+export const prerender = false;
+
+const user = Astro.locals.user!;
+
+if (Astro.request.method === 'POST') {
+  const form = await Astro.request.formData();
+  const action = String(form.get('action') ?? '');
+  const id = Number(form.get('id') ?? 0);
+
+  const payload = [
+    String(form.get('name') ?? '').trim(),
+    String(form.get('description') ?? '') || null,
+    String(form.get('cover') ?? '') || null,
+    JSON.stringify(
+      String(form.get('tech') ?? '')
+        .split(/[,，]/)
+        .map((item) => item.trim())
+        .filter(Boolean),
+    ),
+    String(form.get('repo') ?? '') || null,
+    String(form.get('demo') ?? '') || null,
+    String(form.get('status') ?? 'completed'),
+    form.get('featured') ? 1 : 0,
+    Number(form.get('sort_order') ?? 0),
+  ];
+
+  if (action === 'create') {
+    if (payload[0]) {
+      const max = (await scalar<number>('SELECT COALESCE(MAX(sort_order),0) FROM projects')) ?? 0;
+      await run(
+        `INSERT INTO projects (name, description, cover_url, tech_stack, repo_url, demo_url, status, featured, sort_order, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [...payload.slice(0, 8), max + 1, nowIso()],
+      );
+    }
+  } else if (action === 'update' && id) {
+    await run(
+      `UPDATE projects SET name = ?, description = ?, cover_url = ?, tech_stack = ?, repo_url = ?, demo_url = ?,
+        status = ?, featured = ?, sort_order = ? WHERE id = ?`,
+      [...payload, id],
+    );
+  } else if (action === 'delete' && id) {
+    await run('DELETE FROM projects WHERE id = ?', [id]);
+  }
+
+  return Astro.redirect('/admin/projects', 303);
+}
+
+const projects = await getProjects();
+const statusOptions = [
+  { value: 'developing', label: '开发中' },
+  { value: 'completed', label: '已完成' },
+  { value: 'archived', label: '已归档' },
+];
+---
+
+<AdminLayout title="项目" user={user}>
+  <div class="mx-auto max-w-4xl">
+    <form method="post" class="card p-4">
+      <input type="hidden" name="action" value="create" />
+      <p class="section-title mb-3">新增项目</p>
+      <div class="grid gap-2 sm:grid-cols-2">
+        <input name="name" placeholder="项目名称" class="field" required />
+        <input name="tech" placeholder="技术栈，逗号分隔" class="field text-xs" />
+      </div>
+      <input name="description" placeholder="一句话简介" class="field mt-2 text-xs" />
+      <div class="mt-2 grid gap-2 sm:grid-cols-2">
+        <input name="repo" placeholder="GitHub 地址" class="field text-xs" />
+        <input name="demo" placeholder="演示地址" class="field text-xs" />
+      </div>
+      <div class="mt-3 flex items-center gap-3">
+        <select name="status" class="field h-8 w-28 text-xs">
+          {statusOptions.map((option) => <option value={option.value}>{option.label}</option>)}
+        </select>
+        <label class="flex items-center gap-1.5 text-xs text-muted">
+          <input type="checkbox" name="featured" class="accent-current" /> 精选
+        </label>
+        <button type="submit" class="btn btn-accent btn-sm ml-auto">添加</button>
+      </div>
+    </form>
+
+    <div class="mt-5 space-y-2">
+      {
+        projects.map((project) => (
+          <form method="post" class="card p-3">
+            <div class="flex flex-wrap items-end gap-2">
+              <input type="hidden" name="id" value={project.id} />
+              <div class="min-w-36 flex-1">
+                <label class="label">名称</label>
+                <input name="name" value={project.name} class="field" />
+              </div>
+              <div class="min-w-36 flex-1">
+                <label class="label">技术栈</label>
+                <input name="tech" value={parseJson<string[]>(project.tech_stack, []).join(', ')} class="field text-xs" />
+              </div>
+              <div class="w-24">
+                <label class="label">状态</label>
+                <select name="status" class="field text-xs">
+                  {statusOptions.map((option) => (
+                    <option value={option.value} selected={project.status === option.value}>{option.label}</option>
+                  ))}
+                </select>
+              </div>
+              <div class="w-14">
+                <label class="label">排序</label>
+                <input name="sort_order" type="number" value={project.sort_order} class="field text-center text-xs" />
+              </div>
+              <label class="flex items-center gap-1.5 pb-2 text-xs text-muted">
+                <input type="checkbox" name="featured" checked={project.featured === 1} class="accent-current" /> 精选
+              </label>
+            </div>
+
+            <input name="description" value={project.description ?? ''} class="field mt-2 text-xs" placeholder="简介" />
+
+            <div class="mt-2 grid gap-2 sm:grid-cols-3">
+              <input name="repo" value={project.repo_url ?? ''} class="field text-xs" placeholder="GitHub" />
+              <input name="demo" value={project.demo_url ?? ''} class="field text-xs" placeholder="演示地址" />
+              <input name="cover" value={project.cover_url ?? ''} class="field text-xs" placeholder="封面图地址" />
+            </div>
+
+            <div class="mt-2 flex justify-end gap-1.5">
+              <button type="submit" name="action" value="update" class="btn btn-sm">保存</button>
+              <button
+                type="submit"
+                name="action"
+                value="delete"
+                class="btn btn-sm btn-danger"
+                onclick="return confirm('删除该项目？')"
+              >
+                删除
+              </button>
+            </div>
+          </form>
+        ))
+      }
+      {projects.length === 0 && <p class="card p-10 text-center text-xs text-muted">还没有项目</p>}
+    </div>
+  </div>
+</AdminLayout>

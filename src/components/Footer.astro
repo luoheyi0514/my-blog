@@ -1,0 +1,73 @@
+---
+import type { Settings } from '../lib/types';
+
+interface Props {
+  settings: Settings;
+  year: number;
+}
+
+const { settings, year } = Astro.props;
+const links = [
+  { href: '/posts', label: '全部文章' },
+  { href: '/categories', label: '分类' },
+  { href: '/tags', label: '标签' },
+  { href: '/archive', label: '归档' },
+  { href: '/rss.xml', label: 'RSS' },
+];
+---
+
+<footer class="mt-20 border-t border-line bg-surface/40">
+  <div class="wrap py-10">
+    <div class="flex flex-col gap-8 sm:flex-row sm:justify-between">
+      <div class="max-w-sm">
+        <p class="text-sm font-semibold">{settings.site_name}</p>
+        <p class="mt-2 text-xs leading-relaxed text-muted">{settings.site_description}</p>
+      </div>
+
+      <div class="flex gap-12">
+        <div>
+          <p class="section-title mb-3">导航</p>
+          <ul class="space-y-1.5">
+            {
+              links.map((link) => (
+                <li>
+                  <a href={link.href} class="text-xs text-muted transition hover:text-accent">
+                    {link.label}
+                  </a>
+                </li>
+              ))
+            }
+          </ul>
+        </div>
+
+        <div>
+          <p class="section-title mb-3">联系</p>
+          <ul class="space-y-1.5">
+            {
+              settings.socials.map((social) => (
+                <li>
+                  <a
+                    href={social.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    class="text-xs text-muted transition hover:text-accent"
+                  >
+                    {social.label}
+                  </a>
+                </li>
+              ))
+            }
+            <li>
+              <a href="/admin/login" class="text-xs text-muted/60 transition hover:text-accent">后台</a>
+            </li>
+          </ul>
+        </div>
+      </div>
+    </div>
+
+    <div class="mt-8 flex flex-col gap-1 border-t border-line pt-5 text-[11px] text-muted sm:flex-row sm:justify-between">
+      <p>© {year} {settings.author_name} · 保留所有权利</p>
+      <p class="font-mono">Built with Astro + libSQL</p>
+    </div>
+  </div>
+</footer>

@@ -1,0 +1,222 @@
+---
+import AdminLayout from '../../layouts/AdminLayout.astro';
+import { getSettings, saveSetting } from '../../lib/settings';
+import { one, run } from '../../lib/db';
+import { hashPassword, verifyPassword } from '../../lib/password';
+
+export const prerender = false;
+
+const user = Astro.locals.user!;
+let message = '';
+let error = '';
+
+if (Astro.request.method === 'POST') {
+  const form = await Astro.request.formData();
+  const action = String(form.get('action') ?? 'save');
+
+  if (action === 'password') {
+    const current = String(form.get('current') ?? '');
+    const next = String(form.get('next') ?? '');
+    const row = await one<{ password_hash: string }>('SELECT password_hash FROM users WHERE id = ?', [user.id]);
+    if (!row || !verifyPassword(current, row.password_hash)) {
+      error = '当前密码不正确';
+    } else if (next.length < 8) {
+      error = '新密码至少 8 位';
+    } else {
+      await run('UPDATE users SET password_hash = ? WHERE id = ?', [hashPassword(next), user.id]);
+      message = '密码已更新';
+    }
+  } else {
+    await saveSetting('site_name', String(form.get('site_name') ?? '').trim());
+    await saveSetting('site_subtitle', String(form.get('site_subtitle') ?? '').trim());
+    await saveSetting('site_description', String(form.get('site_description') ?? '').trim());
+    await saveSetting('author_name', String(form.get('author_name') ?? '').trim());
+    await saveSetting('author_bio', String(form.get('author_bio') ?? '').trim());
+    await saveSetting('author_avatar', String(form.get('author_avatar') ?? '').trim());
+    await saveSetting('about_md', String(form.get('about_md') ?? ''));
+    await saveSetting(
+      'tech_stack',
+      String(form.get('tech_stack') ?? '')
+        .split(/[,，]/)
+        .map((item) => item.trim())
+        .filter(Boolean),
+    );
+    await saveSetting(
+      'socials',
+      String(form.get('socials') ?? '')
+        .split('\n')
+        .map((line) => line.trim())
+        .filter(Boolean)
+        .map((line) => {
+          const [label, url] = line.split('|');
+          return { label: (label ?? '').trim(), url: (url ?? '').trim() };
+        })
+        .filter((item) => item.label && item.url),
+    );
+    await saveSetting('posts_per_page', Math.max(1, Number(form.get('posts_per_page') ?? 10)));
+    await saveSetting('homepage', {
+      show_latest_posts: Boolean(form.get('show_latest_posts')),
+      show_series: Boolean(form.get('show_series')),
+      show_til: Boolean(form.get('show_til')),
+      show_roadmap: Boolean(form.get('show_roadmap')),
+    });
+    await saveSetting('giscus', {
+      enabled: Boolean(form.get('giscus_enabled')),
+      repo: String(form.get('giscus_repo') ?? '').trim(),
+      repo_id: String(form.get('giscus_repo_id') ?? '').trim(),
+      category: String(form.get('giscus_category') ?? '').trim(),
+      category_id: String(form.get('giscus_category_id') ?? '').trim(),
+    });
+    message = '设置已保存，前台立即生效';
+  }
+}
+
+const settings = await getSettings();
+const socialsText = settings.socials.map((item) => `${item.label}|${item.url}`).join('\n');
+---
+
+<AdminLayout title="站点设置" user={user}>
+  <div class="mx-auto max-w-3xl space-y-5">
+    {
+      message && (
+        <p class="rounded-md border border-accent/40 bg-accentsoft px-3 py-2 text-xs text-accent">{message}</p>
+      )
+    }
+    {
+      error && (
+        <p class="rounded-md border border-red-500/40 bg-red-500/10 px-3 py-2 text-xs text-red-600 dark:text-red-400">
+          {error}
+        </p>
+      )
+    }
+
+    <form method="post" class="space-y-4">
+      <section class="card p-4">
+        <p class="section-title mb-3">基本信息</p>
+        <div class="grid gap-2 sm:grid-cols-2">
+          <div>
+            <label class="label" for="site_name">站点名称</label>
+            <input id="site_name" name="site_name" value={settings.site_name} class="field" />
+          </div>
+          <div>
+            <label class="label" for="site_subtitle">副标题</label>
+            <input id="site_subtitle" name="site_subtitle" value={settings.site_subtitle} class="field" />
+          </div>
+        </div>
+        <div class="mt-2">
+          <label class="label" for="site_description">站点描述（SEO）</label>
+          <textarea id="site_description" name="site_description" rows="2" class="field text-xs">{settings.site_description}</textarea>
+        </div>
+        <div class="mt-2">
+          <label class="label" for="posts_per_page">每页文章数</label>
+          <input id="posts_per_page" name="posts_per_page" type="number" min="1" value={settings.posts_per_page} class="field w-24" />
+        </div>
+      </section>
+
+      <section class="card p-4">
+        <p class="section-title mb-3">博主信息</p>
+        <div class="grid gap-2 sm:grid-cols-2">
+          <div>
+            <label class="label" for="author_name">昵称</label>
+            <input id="author_name" name="author_name" value={settings.author_name} class="field" />
+          </div>
+          <div>
+            <label class="label" for="author_avatar">头像地址</label>
+            <input id="author_avatar" name="author_avatar" value={settings.author_avatar} class="field font-mono text-xs" />
+          </div>
+        </div>
+        <div class="mt-2">
+          <label class="label" for="author_bio">一句话介绍</label>
+          <textarea id="author_bio" name="author_bio" rows="2" class="field text-xs">{settings.author_bio}</textarea>
+        </div>
+        <div class="mt-2">
+          <label class="label" for="tech_stack">技术栈（逗号分隔）</label>
+          <input id="tech_stack" name="tech_stack" value={settings.tech_stack.join(', ')} class="field text-xs" />
+        </div>
+        <div class="mt-2">
+          <label class="label" for="socials">社交链接（每行一个，格式：名称|地址）</label>
+          <textarea id="socials" name="socials" rows="3" class="field font-mono text-xs">{socialsText}</textarea>
+        </div>
+      </section>
+
+      <section class="card p-4">
+        <p class="section-title mb-3">首页模块</p>
+        <div class="flex flex-wrap gap-4 text-xs text-textsoft">
+          <label class="flex items-center gap-1.5">
+            <input type="checkbox" name="show_latest_posts" checked={settings.homepage.show_latest_posts} class="accent-current" />
+            最新文章
+          </label>
+          <label class="flex items-center gap-1.5">
+            <input type="checkbox" name="show_series" checked={settings.homepage.show_series} class="accent-current" />
+            精选专栏
+          </label>
+          <label class="flex items-center gap-1.5">
+            <input type="checkbox" name="show_til" checked={settings.homepage.show_til} class="accent-current" />
+            最新 TIL
+          </label>
+          <label class="flex items-center gap-1.5">
+            <input type="checkbox" name="show_roadmap" checked={settings.homepage.show_roadmap} class="accent-current" />
+            正在学习
+          </label>
+        </div>
+      </section>
+
+      <section class="card p-4">
+        <p class="section-title mb-3">关于页内容（Markdown）</p>
+        <textarea name="about_md" rows="8" class="field font-mono text-xs">{settings.about_md}</textarea>
+      </section>
+
+      <section class="card p-4">
+        <p class="section-title mb-3">评论（Giscus）</p>
+        <label class="flex items-center gap-1.5 text-xs text-textsoft">
+          <input type="checkbox" name="giscus_enabled" checked={settings.giscus.enabled} class="accent-current" />
+          启用评论
+        </label>
+        <div class="mt-2 grid gap-2 sm:grid-cols-2">
+          <div>
+            <label class="label" for="giscus_repo">仓库（owner/repo）</label>
+            <input id="giscus_repo" name="giscus_repo" value={settings.giscus.repo} class="field font-mono text-xs" />
+          </div>
+          <div>
+            <label class="label" for="giscus_repo_id">repo_id</label>
+            <input id="giscus_repo_id" name="giscus_repo_id" value={settings.giscus.repo_id} class="field font-mono text-xs" />
+          </div>
+          <div>
+            <label class="label" for="giscus_category">分类名</label>
+            <input id="giscus_category" name="giscus_category" value={settings.giscus.category} class="field text-xs" />
+          </div>
+          <div>
+            <label class="label" for="giscus_category_id">category_id</label>
+            <input
+              id="giscus_category_id"
+              name="giscus_category_id"
+              value={settings.giscus.category_id}
+              class="field font-mono text-xs"
+            />
+          </div>
+        </div>
+        <p class="mt-2 text-[10px] text-muted">在 giscus.app 生成配置后填入，需要仓库公开并开启 Discussions。</p>
+      </section>
+
+      <div class="flex justify-end">
+        <button type="submit" name="action" value="save" class="btn btn-accent">保存设置</button>
+      </div>
+    </form>
+
+    <form method="post" class="card p-4">
+      <input type="hidden" name="action" value="password" />
+      <p class="section-title mb-3">修改密码</p>
+      <div class="grid gap-2 sm:grid-cols-2">
+        <div>
+          <label class="label" for="current">当前密码</label>
+          <input id="current" name="current" type="password" class="field" autocomplete="current-password" />
+        </div>
+        <div>
+          <label class="label" for="next">新密码（至少 8 位）</label>
+          <input id="next" name="next" type="password" class="field" autocomplete="new-password" />
+        </div>
+      </div>
+      <button type="submit" class="btn btn-sm mt-3">更新密码</button>
+    </form>
+  </div>
+</AdminLayout>

@@ -1,0 +1,129 @@
+---
+---
+
+<dialog id="search-dialog" class="search-dialog w-[min(640px,92vw)] rounded-xl border border-line bg-surface p-0 text-text">
+  <div class="flex items-center gap-2 border-b border-line px-4 py-3">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="text-muted">
+      <circle cx="11" cy="11" r="7"></circle>
+      <path d="m20 20-3.5-3.5"></path>
+    </svg>
+    <input
+      id="search-input"
+      type="search"
+      placeholder="搜索文章、标签、TIL…"
+      autocomplete="off"
+      class="w-full bg-transparent text-sm outline-none placeholder:text-muted"
+    />
+    <kbd class="rounded border border-line px-1.5 py-0.5 font-mono text-[10px] text-muted">ESC</kbd>
+  </div>
+
+  <div id="search-results" class="max-h-[60vh] overflow-y-auto p-2">
+    <p class="px-3 py-6 text-center text-xs text-muted">输入关键词开始搜索</p>
+  </div>
+</dialog>
+
+<script>
+  const dialog = document.getElementById('search-dialog') as HTMLDialogElement | null;
+  const input = document.getElementById('search-input') as HTMLInputElement | null;
+  const results = document.getElementById('search-results');
+
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let activeIndex = -1;
+
+  function openDialog() {
+    dialog?.showModal();
+    setTimeout(() => input?.focus(), 30);
+  }
+
+  function closeDialog() {
+    dialog?.close();
+    if (input) input.value = '';
+    if (results) results.innerHTML = `<p class="px-3 py-6 text-center text-xs text-muted">输入关键词开始搜索</p>`;
+    activeIndex = -1;
+  }
+
+  function render(items: { title: string; href: string; type: string; snippet: string }[]) {
+    if (!results) return;
+    if (!items.length) {
+      results.innerHTML = `<p class="px-3 py-8 text-center text-xs text-muted">没有找到相关内容</p>`;
+      return;
+    }
+    results.innerHTML = items
+      .map(
+        (item, index) => `
+        <a href="${item.href}" data-index="${index}"
+           class="flex flex-col gap-0.5 rounded-lg px-3 py-2.5 transition hover:bg-surface2 aria-selected:bg-surface2">
+          <span class="flex items-center gap-2 text-sm font-medium">
+            <span class="rounded border border-line px-1 py-px font-mono text-[10px] text-muted">${
+              item.type === 'til' ? 'TIL' : '文章'
+            }</span>
+            <span>${item.title}</span>
+          </span>
+          <span class="line-clamp-1 text-xs text-muted">${item.snippet}</span>
+        </a>`,
+      )
+      .join('');
+  }
+
+  function updateActive() {
+    const nodes = results?.querySelectorAll<HTMLAnchorElement>('a[data-index]') ?? [];
+    nodes.forEach((node, index) => {
+      node.setAttribute('aria-selected', String(index === activeIndex));
+      if (index === activeIndex) node.scrollIntoView({ block: 'nearest' });
+    });
+  }
+
+  async function search(query: string) {
+    if (!query.trim()) {
+      render([]);
+      return;
+    }
+    try {
+      const response = await fetch(`/api/search?q=${encodeURIComponent(query)}`);
+      const data = await response.json();
+      render(data.results ?? []);
+      activeIndex = -1;
+    } catch {
+      render([]);
+    }
+  }
+
+  document.querySelectorAll('[data-search-open]').forEach((btn) => btn.addEventListener('click', openDialog));
+
+  input?.addEventListener('input', () => {
+    clearTimeout(timer);
+    const value = input.value;
+    timer = setTimeout(() => search(value), 250);
+  });
+
+  input?.addEventListener('keydown', (event) => {
+    const nodes = results?.querySelectorAll<HTMLAnchorElement>('a[data-index]') ?? [];
+    if (event.key === 'ArrowDown') {
+      event.preventDefault();
+      activeIndex = Math.min(activeIndex + 1, nodes.length - 1);
+      updateActive();
+    } else if (event.key === 'ArrowUp') {
+      event.preventDefault();
+      activeIndex = Math.max(activeIndex - 1, 0);
+      updateActive();
+    } else if (event.key === 'Enter') {
+      if (nodes[activeIndex]) {
+        window.location.href = nodes[activeIndex].href;
+      } else if (input.value.trim()) {
+        window.location.href = `/search?q=${encodeURIComponent(input.value.trim())}`;
+      }
+    }
+  });
+
+  document.addEventListener('keydown', (event) => {
+    if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
+      event.preventDefault();
+      dialog?.open ? closeDialog() : openDialog();
+    }
+    if (event.key === 'Escape' && dialog?.open) closeDialog();
+  });
+
+  dialog?.addEventListener('click', (event) => {
+    if (event.target === dialog) closeDialog();
+  });
+</script>

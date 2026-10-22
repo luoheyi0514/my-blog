@@ -1,0 +1,194 @@
+---
+import AdminLayout from '../../../layouts/AdminLayout.astro';
+import { adminCountPosts, adminListPosts } from '../../../lib/queries';
+import { run } from '../../../lib/db';
+import { getCategories } from '../../../lib/queries';
+import { formatDate, formatRelative, nowIso } from '../../../lib/utils';
+
+export const prerender = false;
+
+const user = Astro.locals.user!;
+const url = Astro.url;
+
+if (Astro.request.method === 'POST') {
+  const form = await Astro.request.formData();
+  const action = String(form.get('action') ?? '');
+  const ids = form.getAll('ids').map((value) => Number(value)).filter((value) => Number.isInteger(value));
+
+  const single = Number(form.get('id'));
+  const targets = ids.length ? ids : Number.isInteger(single) && single > 0 ? [single] : [];
+
+  for (const id of targets) {
+    if (action === 'delete') {
+      await run('UPDATE posts SET deleted_at = ?, updated_at = ? WHERE id = ?', [nowIso(), nowIso(), id]);
+    } else if (action === 'publish') {
+      await run(
+        `UPDATE posts SET status = 'published', published_at = COALESCE(published_at, ?), updated_at = ? WHERE id = ?`,
+        [nowIso(), nowIso(), id],
+      );
+    } else if (action === 'unpublish') {
+      await run(`UPDATE posts SET status = 'draft', updated_at = ? WHERE id = ?`, [nowIso(), id]);
+    } else if (action === 'pin') {
+      await run('UPDATE posts SET pinned = 1 WHERE id = ?', [id]);
+    } else if (action === 'unpin') {
+      await run('UPDATE posts SET pinned = 0 WHERE id = ?', [id]);
+    }
+  }
+
+  return Astro.redirect(`${url.pathname}${url.search}`, 303);
+}
+
+const status = url.searchParams.get('status') ?? 'all';
+const search = url.searchParams.get('q') ?? '';
+const categoryId = Number(url.searchParams.get('category') ?? 0) || undefined;
+const page = Math.max(1, Number(url.searchParams.get('page') ?? 1) || 1);
+const perPage = 20;
+
+const [posts, allCount, publishedCount, draftCount, categories] = await Promise.all([
+  adminListPosts({ status, search: search || undefined, categoryId, limit: perPage, offset: (page - 1) * perPage }),
+  adminCountPosts('all'),
+  adminCountPosts('published'),
+  adminCountPosts('draft'),
+  getCategories(),
+]);
+
+const totalPages = Math.max(1, Math.ceil(
+  (status === 'published' ? publishedCount : status === 'draft' ? draftCount : allCount) / perPage,
+));
+
+const tabs = [
+  { key: 'all', label: '全部', count: allCount },
+  { key: 'published', label: '已发布', count: publishedCount },
+  { key: 'draft', label: '草稿', count: draftCount },
+];
+
+const buildHref = (overrides: Record<string, string | number | undefined>) => {
+  const params = new URLSearchParams();
+  const merged = { status, q: search, category: categoryId, page, ...overrides };
+  Object.entries(merged).forEach(([key, value]) => {
+    if (value && !(key === 'status' && value === 'all') && !(key === 'page' && value === 1)) {
+      params.set(key, String(value));
+    }
+  });
+  const queryString = params.toString();
+  return `/admin/posts${queryString ? `?${queryString}` : ''}`;
+};
+---
+
+<AdminLayout title="文章" user={user}>
+  <div class="mx-auto max-w-5xl">
+    <div class="mb-4 flex flex-wrap items-center gap-2">
+      {
+        tabs.map((tab) => (
+          <a
+            href={buildHref({ status: tab.key, page: 1 })}
+            class:list={[
+              'rounded-md border px-2.5 py-1 text-xs transition',
+              status === tab.key
+                ? 'border-transparent bg-text font-medium text-bg'
+                : 'border-line text-muted hover:text-text',
+            ]}
+          >
+            {tab.label}
+            <span class="ml-1 font-mono text-[10px] opacity-60">{tab.count}</span>
+          </a>
+        ))
+      }
+
+      <form method="get" class="ml-auto flex gap-1.5">
+        <input type="hidden" name="status" value={status} />
+        <input name="q" value={search} placeholder="搜索标题…" class="field h-8 w-40 py-1 text-xs" />
+        <button type="submit" class="btn btn-sm">搜索</button>
+      </form>
+    </div>
+
+    <form method="post" id="bulk-form">
+      <div class="card overflow-hidden">
+        <div class="flex items-center gap-3 border-b border-line bg-surface2 px-4 py-2 text-[11px] text-muted">
+          <input type="checkbox" id="select-all" class="accent-current" />
+          <span class="flex-1">全选</span>
+          <button type="submit" name="action" value="publish" class="btn btn-sm">批量发布</button>
+          <button
+            type="submit"
+            name="action"
+            value="delete"
+            class="btn btn-sm btn-danger"
+            onclick="return confirm('确认删除选中的文章？可在回收站恢复')"
+          >
+            批量删除
+          </button>
+        </div>
+
+        <div class="divide-y divide-line">
+          {
+            posts.map((post) => (
+              <div class="flex items-start gap-3 px-4 py-3 hover:bg-surface2/60">
+                <input type="checkbox" name="ids" value={post.id} class="mt-1 accent-current" />
+
+                <div class="min-w-0 flex-1">
+                  <div class="flex items-center gap-2">
+                    {post.pinned ? <span class="text-[10px] text-accent">置顶</span> : null}
+                    <a href={`/admin/posts/${post.id}`} class="truncate text-sm font-medium hover:text-accent">
+                      {post.title}
+                    </a>
+                  </div>
+                  <div class="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[10.5px] text-muted">
+                    <span
+                      class:list={[
+                        'rounded px-1.5 py-px',
+                        post.status === 'published' ? 'bg-accentsoft text-accent' : 'bg-surface2',
+                      ]}
+                    >
+                      {post.status === 'published' ? '已发布' : '草稿'}
+                    </span>
+                    {post.category_name && <span>{post.category_name}</span>}
+                    <span>{post.word_count} 字</span>
+                    <span>{post.view_count} 阅读</span>
+                    <span>{post.like_count} 赞</span>
+                    <span>更新于 {formatRelative(post.updated_at)}</span>
+                    {post.status === 'published' && post.published_at && (
+                      <span>发布 {formatDate(post.published_at)}</span>
+                    )}
+                  </div>
+                </div>
+
+                <div class="flex shrink-0 items-center gap-1">
+                  <a href={`/admin/posts/${post.id}`} class="btn btn-sm">编辑</a>
+                  {post.status === 'published' && (
+                    <a href={`/posts/${post.slug}`} target="_blank" class="btn btn-sm">查看</a>
+                  )}
+                </div>
+              </div>
+            ))
+          }
+
+          {
+            posts.length === 0 && (
+              <p class="px-4 py-12 text-center text-xs text-muted">
+                没有文章，<a href="/admin/posts/new" class="text-accent hover:underline">写一篇</a>
+              </p>
+            )
+          }
+        </div>
+      </div>
+    </form>
+
+    <div class="mt-3 flex items-center justify-between text-[11px] text-muted">
+      <span>共 {status === 'published' ? publishedCount : status === 'draft' ? draftCount : allCount} 篇</span>
+      <div class="flex items-center gap-2">
+        {page > 1 && <a href={buildHref({ page: page - 1 })} class="btn btn-sm">上一页</a>}
+        <span class="font-mono">{page} / {totalPages}</span>
+        {page < totalPages && <a href={buildHref({ page: page + 1 })} class="btn btn-sm">下一页</a>}
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const selectAll = document.getElementById('select-all') as HTMLInputElement | null;
+    selectAll?.addEventListener('change', () => {
+      document.querySelectorAll<HTMLInputElement>('input[name="ids"]').forEach((box) => {
+        box.checked = selectAll.checked;
+      });
+    });
+  </script>
+</AdminLayout>

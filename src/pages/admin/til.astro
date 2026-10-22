@@ -1,0 +1,154 @@
+---
+import AdminLayout from '../../layouts/AdminLayout.astro';
+import { adminListTils, getTilById, getTags } from '../../lib/queries';
+import { one, run } from '../../lib/db';
+import { renderMarkdown } from '../../lib/markdown';
+import { formatDateLong, nowIso, slugifyTag } from '../../lib/utils';
+
+export const prerender = false;
+
+const user = Astro.locals.user!;
+
+async function syncTags(tilId: number, names: string[]) {
+  await run('DELETE FROM til_tags WHERE til_id = ?', [tilId]);
+  for (const name of Array.from(new Set(names.map((n) => n.trim()).filter(Boolean)))) {
+    const slug = slugifyTag(name);
+    await run('INSERT OR IGNORE INTO tags (name, slug, created_at) VALUES (?, ?, ?)', [name, slug, nowIso()]);
+    const tag = await one<{ id: number }>('SELECT id FROM tags WHERE slug = ? OR name = ?', [slug, name]);
+    if (tag) await run('INSERT OR IGNORE INTO til_tags (til_id, tag_id) VALUES (?, ?)', [tilId, tag.id]);
+  }
+}
+
+if (Astro.request.method === 'POST') {
+  const form = await Astro.request.formData();
+  const action = String(form.get('action') ?? '');
+  const id = Number(form.get('id') ?? 0);
+  const names = String(form.get('tags') ?? '').split(/[,，]/);
+
+  if (action === 'create') {
+    const title = String(form.get('title') ?? '').trim();
+    const content = String(form.get('content') ?? '');
+    if (title) {
+      const rendered = await renderMarkdown(content);
+      const now = nowIso();
+      const result = await run(
+        `INSERT INTO tils (title, content_md, content_html, published_at, status, created_at, updated_at)
+         VALUES (?, ?, ?, ?, 'published', ?, ?)`,
+        [title, content, rendered.html, now, now, now],
+      );
+      await syncTags(Number(result.lastInsertRowid), names);
+    }
+  } else if (action === 'update' && id) {
+    const title = String(form.get('title') ?? '').trim();
+    const content = String(form.get('content') ?? '');
+    const rendered = await renderMarkdown(content);
+    await run('UPDATE tils SET title = ?, content_md = ?, content_html = ?, updated_at = ? WHERE id = ?', [
+      title,
+      content,
+      rendered.html,
+      nowIso(),
+      id,
+    ]);
+    await syncTags(id, names);
+  } else if (action === 'delete' && id) {
+    await run('UPDATE tils SET deleted_at = ? WHERE id = ?', [nowIso(), id]);
+  }
+
+  return Astro.redirect('/admin/til', 303);
+}
+
+const editingId = Number(Astro.url.searchParams.get('edit') ?? 0);
+const editing = editingId ? await getTilById(editingId) : null;
+
+const [tils, tags] = await Promise.all([adminListTils({ limit: 100 }), getTags(false)]);
+const editingTags = editing
+  ? await one<{ names: string | null }>(
+      `SELECT GROUP_CONCAT(t.name, ', ') AS names
+         FROM til_tags tt JOIN tags t ON t.id = tt.tag_id
+        WHERE tt.til_id = ?`,
+      [editing.id],
+    )
+  : null;
+---
+
+<AdminLayout title="TIL" user={user}>
+  <div class="mx-auto max-w-4xl">
+    <form method="post" class="card p-4">
+      <input type="hidden" name="action" value={editing ? 'update' : 'create'} />
+      {editing && <input type="hidden" name="id" value={editing.id} />}
+
+      <div class="flex items-center justify-between">
+        <p class="section-title">{editing ? '编辑 TIL' : '快速记录'}</p>
+        {editing && <a href="/admin/til" class="text-[11px] text-muted hover:text-accent">取消编辑</a>}
+      </div>
+
+      <input
+        name="title"
+        value={editing?.title ?? ''}
+        placeholder="今天学到了什么？一句话标题"
+        class="field mt-3"
+        required
+      />
+
+      <textarea
+        name="content"
+        rows="4"
+        placeholder="补充说明（支持 Markdown 与粘贴图片）"
+        class="field mt-2 font-mono text-xs">{editing?.content_md ?? ''}</textarea>
+
+      <input
+        name="tags"
+        value={editingTags?.names ?? ''}
+        placeholder="标签，逗号分隔"
+        list="til-tags"
+        class="field mt-2 text-xs"
+      />
+      <datalist id="til-tags">
+        {tags.map((tag) => <option value={tag.name} />)}
+      </datalist>
+
+      <div class="mt-3 flex items-center gap-2">
+        <button type="submit" class="btn btn-accent btn-sm">{editing ? '保存修改' : '发布'}</button>
+        <span class="text-[10px] text-muted">发布后立即显示在 /til</span>
+      </div>
+    </form>
+
+    <div class="mt-6">
+      <div class="mb-3 flex items-end justify-between">
+        <h2 class="section-title">全部 TIL · {tils.length}</h2>
+      </div>
+
+      <div class="card divide-y divide-line">
+        {
+          tils.map((til) => (
+            <div class="flex items-start gap-3 px-4 py-3">
+              <div class="min-w-0 flex-1">
+                <p class="text-sm font-medium">{til.title}</p>
+                <p class="mt-0.5 line-clamp-2 text-[11px] text-muted">{til.content_md}</p>
+                <p class="mt-1 font-mono text-[10px] text-muted">
+                  {formatDateLong(til.published_at)}
+                  {til.tags?.length ? ` · ${til.tags.map((t) => `#${t.name}`).join(' ')}` : ''}
+                </p>
+              </div>
+              <div class="flex shrink-0 items-center gap-1">
+                <a href={`/admin/til?edit=${til.id}`} class="btn btn-sm">编辑</a>
+                <form method="post">
+                  <input type="hidden" name="action" value="delete" />
+                  <input type="hidden" name="id" value={til.id} />
+                  <button
+                    type="submit"
+                    class="btn btn-sm btn-danger"
+                    onclick="return confirm('删除这条 TIL？')"
+                  >
+                    删除
+                  </button>
+                </form>
+              </div>
+            </div>
+          ))
+        }
+        {tils.length === 0 && <p class="px-4 py-10 text-center text-xs text-muted">还没有 TIL</p>}
+      </div>
+    </div>
+  </div>
+</AdminLayout>

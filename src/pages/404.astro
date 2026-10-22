@@ -1,0 +1,39 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+import { listPosts } from '../lib/queries';
+import { formatDate } from '../lib/utils';
+
+const posts = await listPosts({ limit: 3 });
+---
+
+<BaseLayout title="页面不存在" noIndex>
+  <div class="wrap-narrow flex min-h-[60vh] flex-col justify-center py-16">
+    <div class="rounded-xl border border-line bg-surface p-6 font-mono text-[13px] leading-relaxed shadow-sm">
+      <p class="text-muted">$ curl -I {Astro.url.pathname}</p>
+      <p class="mt-1 text-red-500 dark:text-red-400">HTTP/1.1 404 Not Found</p>
+      <p class="mt-3 text-muted">// 这个页面可能被移动、删除，或者从来没有存在过</p>
+      <p class="mt-1">
+        <span class="text-accent">→</span> 返回 <a href="/" class="underline hover:text-accent">首页</a>
+        或 <a href="/posts" class="underline hover:text-accent">浏览全部文章</a>
+      </p>
+    </div>
+
+    {
+      posts.length > 0 && (
+        <div class="mt-8">
+          <p class="section-title mb-3">也许你想看看</p>
+          <ul class="space-y-2">
+            {posts.map((post) => (
+              <li class="flex items-baseline justify-between gap-4">
+                <a href={`/posts/${post.slug}`} class="text-sm transition hover:text-accent">
+                  {post.title}
+                </a>
+                <span class="shrink-0 font-mono text-[10px] text-muted">{formatDate(post.published_at)}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )
+    }
+  </div>
+</BaseLayout>

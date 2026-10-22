@@ -1,0 +1,67 @@
+---
+import type { PostListItem } from '../lib/types';
+import { formatDate } from '../lib/utils';
+
+interface Props {
+  post: PostListItem;
+  showCover?: boolean;
+}
+
+const { post, showCover = false } = Astro.props;
+---
+
+<article class="card card-hover group p-5">
+  <div class="flex gap-5">
+    <div class="min-w-0 flex-1">
+      <div class="flex items-center gap-2 text-[11px] text-muted">
+        <time datetime={post.published_at ?? ''}>{formatDate(post.published_at)}</time>
+        {post.category_name && (
+          <>
+            <span class="text-line">·</span>
+            <a href={`/categories/${post.category_slug}`} class="transition hover:text-accent">
+              {post.category_name}
+            </a>
+          </>
+        )}
+        <span class="text-line">·</span>
+        <span>{post.reading_time} 分钟</span>
+        {post.pinned ? <span class="rounded bg-accentsoft px-1.5 py-px text-accent">置顶</span> : null}
+      </div>
+
+      <a href={`/posts/${post.slug}`} class="mt-2 block">
+        <h2 class="text-[1.06rem] font-semibold leading-snug tracking-tight transition group-hover:text-accent">
+          {post.title}
+        </h2>
+      </a>
+
+      {post.description && (
+        <p class="mt-1.5 line-clamp-2 text-[0.83rem] leading-relaxed text-muted">{post.description}</p>
+      )}
+
+      {
+        post.tags.length > 0 && (
+          <div class="mt-3 flex flex-wrap gap-1.5">
+            {post.tags.map((tag) => (
+              <a href={`/tags/${tag.slug}`} class="chip">
+                #{tag.name}
+              </a>
+            ))}
+          </div>
+        )
+      }
+    </div>
+
+    {
+      showCover && post.cover_url && (
+        <a href={`/posts/${post.slug}`} class="hidden shrink-0 sm:block">
+          <img
+            src={post.cover_url}
+            alt=""
+            loading="lazy"
+            class="h-20 w-28 rounded-lg border border-line object-cover"
+          />
+        </a>
+      )
+    }
+  </div>
+</article>

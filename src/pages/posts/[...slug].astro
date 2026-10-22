@@ -1,0 +1,338 @@
+---
+import BaseLayout from '../../layouts/BaseLayout.astro';
+import Toc from '../../components/Toc.astro';
+import {
+  getAdjacentPosts,
+  getPostBySlug,
+  getRelatedPosts,
+  getSeriesById,
+  getSeriesPosts,
+} from '../../lib/queries';
+import { getSettings } from '../../lib/settings';
+import { formatDate, formatDateLong, parseJson } from '../../lib/utils';
+import type { TocItem } from '../../lib/types';
+
+export const prerender = false;
+
+const { slug } = Astro.params;
+const user = Astro.locals.user;
+const settings = await getSettings();
+
+const post = slug ? await getPostBySlug(slug, Boolean(user)) : null;
+if (!post) {
+  return Astro.rewrite('/404');
+}
+
+const [series, adjacent, related] = await Promise.all([
+  post.series_id ? getSeriesById(post.series_id) : Promise.resolve(null),
+  getAdjacentPosts(post),
+  getRelatedPosts(post.id, post.tags.map((tag) => tag.id), 3),
+]);
+
+const seriesPosts = series ? await getSeriesPosts(series.id, Boolean(user)) : [];
+const toc = parseJson<TocItem[]>(post.toc_json, []);
+const isDraft = post.status !== 'published';
+const updated = post.updated_at && post.updated_at.slice(0, 10) !== (post.published_at ?? '').slice(0, 10);
+
+const jsonLd = {
+  '@context': 'https://schema.org',
+  '@type': 'BlogPosting',
+  headline: post.title,
+  description: post.description ?? '',
+  datePublished: post.published_at,
+  dateModified: post.updated_at,
+  author: { '@type': 'Person', name: settings.author_name },
+  publisher: { '@type': 'Organization', name: settings.site_name },
+};
+---
+
+<BaseLayout title={post.title} description={post.description ?? undefined} image={post.cover_url ?? undefined} noIndex={isDraft}>
+  <div class="reading-progress" id="reading-progress"></div>
+
+  <div class="mx-auto w-full max-w-[1180px] px-5 py-10">
+    <div class="grid gap-10 lg:grid-cols-[minmax(0,1fr)_230px]">
+      <article class="min-w-0">
+        {
+          isDraft && (
+            <div class="mb-5 rounded-lg border border-amber-500/40 bg-amber-500/10 px-4 py-2.5 text-xs text-amber-700 dark:text-amber-300">
+              草稿预览 · 该文章尚未发布，只有登录后的你可以看到
+              <a href={`/admin/posts/${post.id}`} class="ml-2 underline">继续编辑</a>
+            </div>
+          )
+        }
+
+        <header
+          class={series
+            ? 'mb-6 border-b border-line pb-6'
+            : 'mb-7 border-b border-line pb-6'}
+        >
+          {series && (
+            <a
+              href={`/series/${series.slug}`}
+              class="mb-3 inline-flex items-center gap-1.5 rounded-md bg-accentsoft px-2 py-1 text-[11px] text-accent"
+            >
+              <span class="font-mono">§</span>
+              《{series.name}》第 {post.series_order ?? '?'} 篇
+            </a>
+          )}
+
+          <h1 class="text-[1.6rem] font-bold leading-snug tracking-tight sm:text-[2rem]">{post.title}</h1>
+
+          <div class="mt-4 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-[11.5px] text-muted">
+            <time datetime={post.published_at ?? ''}>{formatDateLong(post.published_at)}</time>
+            {updated && <span>更新于 {formatDate(post.updated_at)}</span>}
+            {post.category_name && (
+              <a href={`/categories/${post.category_slug}`} class="transition hover:text-accent">
+                {post.category_name}
+              </a>
+            )}
+            <span>{post.word_count} 字 · {post.reading_time} 分钟</span>
+            <span id="view-count">{post.view_count} 阅读</span>
+            {user && (
+              <a href={`/admin/posts/${post.id}`} class="ml-auto text-accent hover:underline">编辑本文</a>
+            )}
+          </div>
+
+          {
+            post.tags.length > 0 && (
+              <div class="mt-3 flex flex-wrap gap-1.5">
+                {post.tags.map((tag) => (
+                  <a href={`/tags/${tag.slug}`} class="chip">
+                    #{tag.name}
+                  </a>
+                ))}
+              </div>
+            )
+          }
+        </header>
+
+        {post.cover_url && (
+          <img
+            src={post.cover_url}
+            alt={post.title}
+            class="mb-8 w-full rounded-xl border border-line object-cover"
+          />
+        )}
+
+        <div class="prose" set:html={post.content_html} />
+
+        <div class="mt-10 flex items-center justify-between border-t border-line pt-5">
+          <button
+            type="button"
+            id="like-button"
+            data-slug={post.slug}
+            class="flex items-center gap-1.5 rounded-full border border-line px-3 py-1.5 text-xs text-muted transition hover:border-accent/50 hover:text-accent"
+          >
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.6l-1-1a5.5 5.5 0 0 0-7.8 7.8l8.8 8.8 8.8-8.8a5.5 5.5 0 0 0 0-7.8z"></path>
+            </svg>
+            <span>有用</span>
+            <span id="like-count" class="font-mono">{post.like_count}</span>
+          </button>
+
+          <p class="text-[11px] text-muted">
+            本文采用
+            <a
+              href="https://creativecommons.org/licenses/by-nc-sa/4.0/"
+              target="_blank"
+              rel="noopener noreferrer"
+              class="underline hover:text-accent">CC BY-NC-SA 4.0</a
+            >
+            许可协议
+          </p>
+        </div>
+
+        {
+          series && seriesPosts.length > 0 && (
+            <section class="mt-10">
+              <div class="mb-3 flex items-end justify-between">
+                <h2 class="section-title">本专栏目录</h2>
+                <a href={`/series/${series.slug}`} class="text-[11px] text-muted hover:text-accent">
+                  共 {seriesPosts.length} 篇 →
+                </a>
+              </div>
+              <ol class="card divide-y divide-line overflow-hidden">
+                {seriesPosts.map((item, index) => (
+                  <li>
+                    <a
+                      href={`/posts/${item.slug}`}
+                      class:list={[
+                        'flex items-start gap-3 px-4 py-2.5 text-sm transition hover:bg-surface2',
+                        item.id === post.id ? 'bg-accentsoft text-accent' : 'text-textsoft',
+                      ]}
+                    >
+                      <span class="mt-0.5 font-mono text-[11px] text-muted">
+                        {String(item.series_order ?? index + 1).padStart(2, '0')}
+                      </span>
+                      <span class="leading-snug">{item.title}</span>
+                    </a>
+                  </li>
+                ))}
+              </ol>
+            </section>
+          )
+        }
+
+        <nav class="mt-10 grid gap-3 sm:grid-cols-2">
+          {
+            adjacent.prev ? (
+              <a href={`/posts/${adjacent.prev.slug}`} class="card card-hover group p-4">
+                <p class="text-[10px] text-muted">← 上一篇</p>
+                <p class="mt-1 line-clamp-1 text-sm font-medium transition group-hover:text-accent">
+                  {adjacent.prev.title}
+                </p>
+              </a>
+            ) : (
+              <span />
+            )
+          }
+          {
+            adjacent.next && (
+              <a href={`/posts/${adjacent.next.slug}`} class="card card-hover group p-4 sm:text-right">
+                <p class="text-[10px] text-muted">下一篇 →</p>
+                <p class="mt-1 line-clamp-1 text-sm font-medium transition group-hover:text-accent">
+                  {adjacent.next.title}
+                </p>
+              </a>
+            )
+          }
+        </nav>
+
+        {
+          related.length > 0 && (
+            <section class="mt-10">
+              <h2 class="section-title mb-3">相关推荐</h2>
+              <div class="grid gap-3">
+                {related.map((item) => (
+                  <a href={`/posts/${item.slug}`} class="group flex items-baseline justify-between gap-4">
+                    <span class="line-clamp-1 text-sm transition group-hover:text-accent">{item.title}</span>
+                    <span class="shrink-0 font-mono text-[10px] text-muted">
+                      {formatDate(item.published_at)}
+                    </span>
+                  </a>
+                ))}
+              </div>
+            </section>
+          )
+        }
+
+        {
+          settings.giscus.enabled && settings.giscus.repo && !isDraft && (
+            <section class="mt-12" id="comments">
+              <h2 class="section-title mb-4">评论</h2>
+              <div
+                id="giscus-container"
+                data-repo={settings.giscus.repo}
+                data-repo-id={settings.giscus.repo_id}
+                data-category={settings.giscus.category}
+                data-category-id={settings.giscus.category_id}
+                class="min-h-[120px]"
+              />
+            </section>
+          )
+        }
+      </article>
+
+      <aside class="hidden lg:block">
+        <Toc toc={toc} />
+      </aside>
+    </div>
+
+    <div class="lg:hidden">
+      <Toc toc={toc} />
+    </div>
+  </div>
+
+  <script type="application/ld+json" set:html={JSON.stringify(jsonLd)} />
+
+  <script>
+    const progress = document.getElementById('reading-progress');
+    const article = document.querySelector('article');
+
+    const onScroll = () => {
+      if (!progress || !article) return;
+      const rect = article.getBoundingClientRect();
+      const total = rect.height - window.innerHeight;
+      const scrolled = Math.min(Math.max(-rect.top, 0), Math.max(total, 1));
+      progress.style.width = `${(total > 0 ? scrolled / total : 0) * 100}%`;
+    };
+    window.addEventListener('scroll', onScroll, { passive: true });
+    onScroll();
+
+    // 阅读量
+    const slug = document.querySelector<HTMLElement>('#like-button')?.dataset.slug;
+    if (slug) {
+      const key = `viewed:${slug}`;
+      if (!sessionStorage.getItem(key)) {
+        sessionStorage.setItem(key, '1');
+        fetch('/api/views', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ slug }),
+        })
+          .then((r) => r.json())
+          .then((data) => {
+            const el = document.getElementById('view-count');
+            if (el && typeof data.views === 'number') el.textContent = `${data.views} 阅读`;
+          })
+          .catch(() => {});
+      }
+
+      // 点赞
+      const button = document.getElementById('like-button');
+      const countEl = document.getElementById('like-count');
+      if (button && countEl && localStorage.getItem(`liked:${slug}`)) {
+        button.classList.add('border-accent/60', 'text-accent');
+      }
+      button?.addEventListener('click', async () => {
+        try {
+          const response = await fetch('/api/likes', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ slug }),
+          });
+          const data = await response.json();
+          if (typeof data.count === 'number') countEl.textContent = String(data.count);
+          button.classList.toggle('border-accent/60', Boolean(data.liked));
+          button.classList.toggle('text-accent', Boolean(data.liked));
+          localStorage.setItem(`liked:${slug}`, String(Boolean(data.liked)));
+        } catch {}
+      });
+    }
+
+    // Giscus 懒加载
+    const container = document.getElementById('giscus-container') as HTMLElement | null;
+    if (container) {
+      const load = () => {
+        if (container.dataset.loaded) return;
+        container.dataset.loaded = '1';
+        const script = document.createElement('script');
+        script.src = 'https://giscus.app/client.js';
+        script.async = true;
+        script.crossOrigin = 'anonymous';
+        script.dataset.repo = container.dataset.repo ?? '';
+        script.dataset.repoId = container.dataset.repoId ?? '';
+        script.dataset.category = container.dataset.category ?? '';
+        script.dataset.categoryId = container.dataset.categoryId ?? '';
+        script.dataset.mapping = 'pathname';
+        script.dataset.strict = '0';
+        script.dataset.reactionsEnabled = '1';
+        script.dataset.theme = document.documentElement.classList.contains('dark')
+          ? 'dark_dimmed'
+          : 'light';
+        script.dataset.lang = 'zh-CN';
+        container.appendChild(script);
+      };
+      const observer = new IntersectionObserver(
+        (entries) => {
+          if (entries.some((entry) => entry.isIntersecting)) {
+            load();
+            observer.disconnect();
+          }
+        },
+        { rootMargin: '200px' },
+      );
+      observer.observe(container);
+    }
+  </script>
+</BaseLayout>

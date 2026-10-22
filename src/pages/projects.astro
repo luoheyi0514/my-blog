@@ -1,0 +1,120 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+import { getProjects } from '../lib/queries';
+import { parseJson } from '../lib/utils';
+
+const projects = await getProjects();
+const featured = projects.filter((project) => project.featured === 1);
+const others = projects.filter((project) => project.featured !== 1);
+
+const statusLabel: Record<string, string> = {
+  developing: '开发中',
+  completed: '已完成',
+  archived: '已归档',
+};
+
+const techList = (value: string | null) => parseJson<string[]>(value, []);
+---
+
+<BaseLayout title="项目" description="做过的一些项目与技术实践。">
+  <div class="wrap py-10">
+    <header class="mb-8">
+      <h1 class="text-2xl font-bold tracking-tight">项目</h1>
+      <p class="mt-1.5 text-sm text-muted">{projects.length} 个项目 · 部分已开源</p>
+    </header>
+
+    {
+      featured.length > 0 && (
+        <div class="mb-4 grid gap-4">
+          {featured.map((project) => (
+            <article class="card overflow-hidden">
+              <div class="flex flex-col gap-5 p-6 sm:flex-row">
+                {project.cover_url ? (
+                  <img
+                    src={project.cover_url}
+                    alt={project.name}
+                    class="h-40 w-full shrink-0 rounded-lg border border-line object-cover sm:w-56"
+                  />
+                ) : (
+                  <div class="flex h-24 w-full shrink-0 items-center justify-center rounded-lg border border-line bg-surface2 font-mono text-2xl text-muted sm:h-40 sm:w-56">
+                    {project.name.charAt(0)}
+                  </div>
+                )}
+
+                <div class="min-w-0 flex-1">
+                  <div class="flex items-center gap-2">
+                    <h2 class="text-lg font-semibold tracking-tight">{project.name}</h2>
+                    <span class="rounded border border-accent/40 bg-accentsoft px-1.5 py-px text-[10px] text-accent">
+                      精选
+                    </span>
+                    <span class="text-[10px] text-muted">{statusLabel[project.status] ?? project.status}</span>
+                  </div>
+
+                  <p class="mt-2 text-sm leading-relaxed text-muted">{project.description}</p>
+
+                  <div class="mt-3 flex flex-wrap gap-1.5">
+                    {techList(project.tech_stack).map((tech) => (
+                      <span class="chip font-mono text-[10px]">{tech}</span>
+                    ))}
+                  </div>
+
+                  <div class="mt-4 flex gap-2">
+                    {project.repo_url && (
+                      <a href={project.repo_url} target="_blank" rel="noopener noreferrer" class="btn btn-sm">
+                        源码
+                      </a>
+                    )}
+                    {project.demo_url && (
+                      <a href={project.demo_url} target="_blank" rel="noopener noreferrer" class="btn btn-sm">
+                        在线演示
+                      </a>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </article>
+          ))}
+        </div>
+      )
+    }
+
+    <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+      {
+        others.map((project) => (
+          <article class="card card-hover flex flex-col p-5">
+            <div class="flex items-center justify-between">
+              <h2 class="font-semibold tracking-tight">{project.name}</h2>
+              <span class="text-[10px] text-muted">{statusLabel[project.status] ?? project.status}</span>
+            </div>
+            <p class="mt-1.5 line-clamp-3 flex-1 text-xs leading-relaxed text-muted">{project.description}</p>
+
+            <div class="mt-3 flex flex-wrap gap-1.5">
+              {techList(project.tech_stack).map((tech) => (
+                <span class="chip font-mono text-[10px]">{tech}</span>
+              ))}
+            </div>
+
+            <div class="mt-4 flex gap-2">
+              {project.repo_url && (
+                <a href={project.repo_url} target="_blank" rel="noopener noreferrer" class="btn btn-sm">
+                  源码
+                </a>
+              )}
+              {project.demo_url && (
+                <a href={project.demo_url} target="_blank" rel="noopener noreferrer" class="btn btn-sm">
+                  演示
+                </a>
+              )}
+            </div>
+          </article>
+        ))
+      }
+    </div>
+
+    {
+      projects.length === 0 && (
+        <div class="card p-10 text-center text-sm text-muted">还没有项目，去后台添加。</div>
+      )
+    }
+  </div>
+</BaseLayout>

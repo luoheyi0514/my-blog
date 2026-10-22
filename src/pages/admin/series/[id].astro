@@ -1,0 +1,139 @@
+---
+import AdminLayout from '../../../layouts/AdminLayout.astro';
+import { getSeriesById, getSeriesPosts } from '../../../lib/queries';
+import { run } from '../../../lib/db';
+import { nowIso, parseJson } from '../../../lib/utils';
+
+export const prerender = false;
+
+const user = Astro.locals.user!;
+const id = Number(Astro.params.id);
+const series = Number.isInteger(id) ? await getSeriesById(id) : null;
+if (!series) return Astro.redirect('/admin/series');
+
+if (Astro.request.method === 'POST') {
+  const form = await Astro.request.formData();
+  const action = String(form.get('action') ?? '');
+
+  if (action === 'update') {
+    const planned = String(form.get('planned') ?? '')
+      .split('\n')
+      .map((line) => line.trim())
+      .filter(Boolean);
+    await run(
+      `UPDATE series SET name = ?, slug = ?, description = ?, cover_url = ?, status = ?, featured = ?,
+        planned_chapters = ?, updated_at = ? WHERE id = ?`,
+      [
+        String(form.get('name') ?? series.name).trim(),
+        String(form.get('slug') ?? series.slug).trim(),
+        String(form.get('description') ?? '') || null,
+        String(form.get('cover') ?? '') || null,
+        String(form.get('status') ?? 'ongoing'),
+        form.get('featured') ? 1 : 0,
+        JSON.stringify(planned),
+        nowIso(),
+        id,
+      ],
+    );
+  } else if (action === 'save-order') {
+    const rows = await getSeriesPosts(series.id, true);
+    for (const post of rows) {
+      const value = Number(form.get(`order_${post.id}`));
+      if (Number.isFinite(value)) {
+        await run('UPDATE posts SET series_order = ? WHERE id = ?', [value, post.id]);
+      }
+    }
+  } else if (action === 'remove-post') {
+    await run('UPDATE posts SET series_id = NULL, series_order = NULL WHERE id = ?', [Number(form.get('post_id'))]);
+  }
+
+  return Astro.redirect(`/admin/series/${id}`, 303);
+}
+
+const posts = await getSeriesPosts(series.id, true);
+const planned = parseJson<string[]>(series.planned_chapters, []);
+---
+
+<AdminLayout title={`专栏 · ${series.name}`} user={user}>
+  <div class="mx-auto max-w-4xl space-y-5">
+    <a href="/admin/series" class="btn btn-sm btn-ghost text-muted">← 返回专栏列表</a>
+
+    <form method="post" class="card p-4">
+      <input type="hidden" name="action" value="update" />
+      <p class="section-title mb-3">专栏设置</p>
+
+      <div class="grid gap-2 sm:grid-cols-2">
+        <div>
+          <label class="label" for="name">名称</label>
+          <input id="name" name="name" value={series.name} class="field" required />
+        </div>
+        <div>
+          <label class="label" for="slug">slug</label>
+          <input id="slug" name="slug" value={series.slug} class="field font-mono text-xs" />
+        </div>
+      </div>
+
+      <div class="mt-2">
+        <label class="label" for="description">简介</label>
+        <textarea id="description" name="description" rows="2" class="field text-xs">{series.description ?? ''}</textarea>
+      </div>
+
+      <div class="mt-2 grid gap-2 sm:grid-cols-2">
+        <div>
+          <label class="label" for="cover">封面图地址</label>
+          <input id="cover" name="cover" value={series.cover_url ?? ''} class="field font-mono text-xs" />
+        </div>
+        <div>
+          <label class="label" for="status">状态</label>
+          <select id="status" name="status" class="field text-xs">
+            <option value="ongoing" selected={series.status === 'ongoing'}>连载中</option>
+            <option value="completed" selected={series.status === 'completed'}>已完结</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="mt-2">
+        <label class="label" for="planned">计划章节（每行一个，前台显示为灰色待写）</label>
+        <textarea id="planned" name="planned" rows="3" class="field font-mono text-xs">{planned.join('\n')}</textarea>
+      </div>
+
+      <div class="mt-3 flex items-center gap-3">
+        <label class="flex items-center gap-1.5 text-xs text-muted">
+          <input type="checkbox" name="featured" checked={series.featured === 1} class="accent-current" /> 首页精选
+        </label>
+        <button type="submit" class="btn btn-accent btn-sm ml-auto">保存</button>
+      </div>
+    </form>
+
+    <form method="post" class="card p-4">
+      <input type="hidden" name="action" value="save-order" />
+      <div class="mb-3 flex items-center justify-between">
+        <p class="section-title">章节顺序 · {posts.length} 篇</p>
+        <button type="submit" class="btn btn-sm">保存顺序</button>
+      </div>
+
+      <div class="divide-y divide-line">
+        {
+          posts.map((post) => (
+            <div class="flex items-center gap-3 py-2">
+              <input
+                type="number"
+                min="1"
+                value={post.series_order ?? 0}
+                class="field h-8 w-16 py-1 text-center text-xs"
+                name={`order_${post.id}`}
+              />
+              <a href={`/admin/posts/${post.id}`} class="min-w-0 flex-1 truncate text-sm hover:text-accent">
+                {post.title}
+              </a>
+              <span class="shrink-0 font-mono text-[10px] text-muted">{post.status === 'published' ? '' : '草稿'}</span>
+            </div>
+          ))
+        }
+        {posts.length === 0 && <p class="py-8 text-center text-xs text-muted">专栏下还没有文章</p>}
+      </div>
+
+      <p class="mt-2 text-[10px] text-muted">顺序按下方列表从上到下保存，可在文章中设置所属专栏。</p>
+    </form>
+  </div>
+</AdminLayout>
