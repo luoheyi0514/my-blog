@@ -16,56 +16,46 @@ const links = [
 ];
 ---
 
-<footer class="mt-20 border-t border-line bg-surface/40">
-  <div class="wrap py-10">
-    <div class="flex flex-col gap-8 sm:flex-row sm:justify-between">
+<footer class="mt-16 border-t border-line bg-surface/40">
+  <div class="wrap py-6">
+    <div class="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
       <div class="max-w-sm">
         <p class="text-sm font-semibold">{settings.site_name}</p>
-        <p class="mt-2 text-xs leading-relaxed text-muted">{settings.site_description}</p>
+        <p class="mt-1 text-xs leading-relaxed text-muted">{settings.site_description}</p>
       </div>
 
-      <div class="flex gap-12">
-        <div>
-          <p class="section-title mb-3">导航</p>
-          <ul class="space-y-1.5">
-            {
-              links.map((link) => (
-                <li>
-                  <a href={link.href} class="text-xs text-muted transition hover:text-accent">
-                    {link.label}
-                  </a>
-                </li>
-              ))
-            }
-          </ul>
+      <div class="space-y-2 text-xs">
+        <div class="flex flex-wrap items-center gap-x-4 gap-y-1">
+          <span class="section-title w-8 shrink-0">导航</span>
+          {
+            links.map((link) => (
+              <a href={link.href} class="text-muted transition hover:text-accent">
+                {link.label}
+              </a>
+            ))
+          }
         </div>
 
-        <div>
-          <p class="section-title mb-3">联系</p>
-          <ul class="space-y-1.5">
-            {
-              settings.socials.map((social) => (
-                <li>
-                  <a
-                    href={social.url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    class="text-xs text-muted transition hover:text-accent"
-                  >
-                    {social.label}
-                  </a>
-                </li>
-              ))
-            }
-            <li>
-              <a href="/admin/login" class="text-xs text-muted/60 transition hover:text-accent">后台</a>
-            </li>
-          </ul>
+        <div class="flex flex-wrap items-center gap-x-4 gap-y-1">
+          <span class="section-title w-8 shrink-0">联系</span>
+          {
+            settings.socials.map((social) => (
+              <a
+                href={social.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                class="text-muted transition hover:text-accent"
+              >
+                {social.label}
+              </a>
+            ))
+          }
+          <a href="/admin/login" class="text-muted/60 transition hover:text-accent">后台</a>
         </div>
       </div>
     </div>
 
-    <div class="mt-8 flex flex-col gap-1 border-t border-line pt-5 text-[11px] text-muted sm:flex-row sm:justify-between">
+    <div class="mt-5 flex flex-col gap-1 border-t border-line pt-4 text-[11px] text-muted sm:flex-row sm:justify-between">
       <p>© {year} {settings.author_name} · 保留所有权利</p>
       <p class="font-mono">Built with Astro + libSQL</p>
     </div>
