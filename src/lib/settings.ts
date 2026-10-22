@@ -2,10 +2,10 @@ import { all, run } from './db';
 import type { Settings } from './types';
 
 export const DEFAULT_SETTINGS: Settings = {
-  site_name: 'Kiwiluo 的技术笔记',
+  site_name: '不知名XL 的技术笔记',
   site_subtitle: '记录 · 整理 · 复盘',
   site_description: '一个前端 / 全栈开发者的学习记录：技术笔记、专栏文章、碎片灵感与学习路线。',
-  author_name: 'Kiwiluo',
+  author_name: '不知名XL',
   author_avatar: '',
   author_bio: '前端 / 全栈开发者，把学过的、踩过的坑写下来，让它变成自己的东西。',
   tech_stack: ['TypeScript', 'React', 'Node.js', 'Go', 'PostgreSQL', 'Docker'],
@@ -14,7 +14,7 @@ export const DEFAULT_SETTINGS: Settings = {
   ],
   about_md: `## 关于我
 
-你好，我是 Kiwiluo，一名前端 / 全栈开发者。
+你好，我是 不知名XL，一名前端 / 全栈开发者。
 
 平时喜欢把一个东西拆开看清楚再动手，这个博客就是我的学习记录本。
 
